@@ -3,23 +3,18 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 import urllib.parse
+import os
 
 # --- إعداد الصفحة ---
-st.set_page_config(page_title="ISP Pro Ultimate System", layout="wide")
+st.set_page_config(page_title="ISP Pro - Final Edition", layout="wide")
 
-# --- تنسيق CSS لتحسين المظهر ---
-st.markdown("""
-    <style>
-    div.stMetric { background-color: #0e1117; padding: 10px; border-radius: 10px; border: 1px solid #333; }
-    .stTextArea textarea { color: #2ecc71 !important; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- قاعدة البيانات ---
-conn = sqlite3.connect('isp_debts.db', check_same_thread=False)
+# --- قاعدة البيانات (حفظ دائم) ---
+DB_FILE = 'isp_debts.db'
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS billing 
-             (username TEXT PRIMARY KEY, debt REAL DEFAULT 0, paid_amount REAL DEFAULT 0, last_auto_bill TEXT)''')
+             (username TEXT PRIMARY KEY, debt REAL DEFAULT 0, paid_amount REAL DEFAULT 0, 
+              service TEXT, expiry_date TEXT, phone TEXT)''')
 c.execute('''CREATE TABLE IF NOT EXISTS logs 
              (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, time TEXT)''')
 conn.commit()
@@ -31,153 +26,136 @@ def add_log(msg):
     conn.commit()
 
 def send_whatsapp(phone, message):
-    phone = "".join(filter(str.isdigit, str(phone)))
-    if not phone.startswith('961'): phone = '961' + phone
+    phone = "".join(filter(str.isdigit, str(phone))) if phone else ""
+    if not phone.startswith('961') and phone != "": phone = '961' + phone
     return f"https://wa.me/{phone}?text={urllib.parse.quote(message)}"
 
 PRICES = {"bronze": 20, "silver": 25, "gold": 30, "platinum": 40, "diamond": 50, "platinum-ise": 60}
 def get_price(service):
-    s = str(service).lower() if pd.notna(service) else ""
+    s = str(service).lower() if service else ""
     for k, v in PRICES.items():
         if k in s: return v
     return 0
 
 # --- واجهة البرنامج ---
-st.title("📡 نظام إدارة الشبكة الاحترافي")
+st.title("📡 نظام الإدارة المتكامل (الحفظ الدائم)")
 
-file = st.file_uploader("ارفع ملف الـ Radius 2.csv الأحدث")
+# 1. رفع الملف للتحديث (اختياري)
+file = st.file_uploader("ارفع ملف Radius 2.csv لتحديث الأسماء والتواريخ")
 
 if file:
-    df = pd.read_csv(file)
-    df.columns = [col.strip() for col in df.columns]
+    df_upload = pd.read_csv(file)
+    df_upload.columns = [col.strip() for col in df_upload.columns]
     date_col = 'Expiry Date'
-    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+    phone_col = 'Mobile Number' if 'Mobile Number' in df_upload.columns else 'Phone Number'
+    
+    for _, r in df_upload.iterrows():
+        u = str(r['Username'])
+        s = str(r['Service'])
+        e = str(r[date_col])
+        p = str(r[phone_col]) if phone_col in df_upload.columns else ""
+        
+        # تحديث البيانات (ON CONFLICT لإبقاء الدين القديم كما هو)
+        c.execute('''INSERT INTO billing (username, service, expiry_date, phone) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(username) DO UPDATE SET service=excluded.service, expiry_date=excluded.expiry_date, phone=excluded.phone''', (u, s, e, p))
+    conn.commit()
+    st.success("✅ تم تحديث قاعدة البيانات من الملف!")
+
+# 2. جلب البيانات المخزنة
+db_df = pd.read_sql_query("SELECT * FROM billing", conn)
+
+if not db_df.empty:
+    db_df['expiry_date'] = pd.to_datetime(db_df['expiry_date'], errors='coerce')
     now = datetime.now()
 
     # --- القائمة الجانبية (Sidebar) ---
-    st.sidebar.header("🛠 العمليات الجماعية")
+    st.sidebar.header("💾 الأمان والعمليات")
     
-    # 1. زر التأسيس (مرة واحدة في الشهر)
-    if st.sidebar.button("🚨 زيادة شهر للكل (تأسيس الحسابات)"):
-        count = 0
-        for _, r in df.iterrows():
-            u, p = str(r['Username']), get_price(r['Service'])
-            c.execute("SELECT debt, paid_amount FROM billing WHERE username=?", (u,))
-            res = c.fetchone() or (0,0)
-            c.execute("INSERT OR REPLACE INTO billing (username, debt, paid_amount) VALUES (?, ?, ?)", 
-                      (u, res[0] + p, res[1]))
-            count += 1
+    # زر البيك اب (Backup)
+    with open(DB_FILE, "rb") as fp:
+        st.sidebar.download_button(
+            label="📥 تحميل نسخة احتياطية (Backup)",
+            data=fp,
+            file_name=f"ISP_Backup_{datetime.now().strftime('%Y-%m-%d')}.db",
+            mime="application/x-sqlite3"
+        )
+    
+    st.sidebar.divider()
+    
+    if st.sidebar.button("🚨 زيادة شهر للكل"):
+        for _, r in db_df.iterrows():
+            price = get_price(r['service'])
+            c.execute("UPDATE billing SET debt = debt + ? WHERE username = ?", (price, r['username']))
         conn.commit()
-        add_log(f"تأسيس: تم زيادة شهر لجميع المشتركين ({count} مشترك)")
-        st.sidebar.success(f"تمت العملية لـ {count} مشترك!")
+        add_log("زيادة شهر لجميع المشتركين")
         st.rerun()
 
     st.sidebar.divider()
-    
-    # 2. ميزة الرسائل الجماعية للجروب
-    st.sidebar.subheader("📢 رسائل الجروب الجماعية")
-    
-    # تجميع بيانات الديون
+    st.sidebar.subheader("📢 رسائل جماعية")
     c.execute("SELECT username, debt FROM billing WHERE debt > 0")
     debtors = c.fetchall()
-    if st.sidebar.button("📝 نص قائمة الديون للجروب"):
-        if debtors:
-            msg = "💸 قائمة الذمم المالية المطلوبة (يرجى التسديد):\n" + "\n".join([f"- {d[0]}: ${d[1]}" for d in debtors])
-            st.sidebar.text_area("انسخ النص وابعته للجروب:", msg, height=200)
-        else:
-            st.sidebar.info("لا يوجد ديون حالياً.")
+    if st.sidebar.button("📝 نص الديون للجروب"):
+        msg = "💸 قائمة الذمم المالية:\n" + "\n".join([f"- {d[0]}: ${d[1]}" for d in debtors])
+        st.sidebar.text_area("انسخ النص:", msg, height=150)
 
-    # تجميع المنتهيين
-    expired_list = df[df[date_col] < now]['Username'].tolist()
-    if st.sidebar.button("📝 نص المنتهية اشتراكاتهم"):
-        if expired_list:
-            msg = "🚫 المشتركين المنتهية صلاحيتهم (الإنترنت مقطوع):\n" + "\n".join([f"- {u}" for u in expired_list])
-            st.sidebar.text_area("انسخ النص وابعته للجروب:", msg, height=150)
-        else:
-            st.sidebar.info("لا يوجد اشتراكات منتهية.")
-
-    st.sidebar.divider()
-    view = st.sidebar.radio("تصفية الجدول حسب:", ["الكل", "عليه دين فقط", "خالصين"])
-
-    # --- لوحة الأولويات (فوق الجدول) ---
-    st.subheader("🚨 نظرة عامة على الشبكة")
-    p_col1, p_col2, p_col3 = st.columns(3)
-    
-    expired_num = len(df[df[date_col] < now])
-    near_expiry_num = len(df[(df[date_col] >= now) & (df[date_col] < now + timedelta(days=3))])
+    # --- الإحصائيات ---
+    st.subheader("📊 إحصائيات السوق")
+    c1, c2, c3 = st.columns(3)
     c.execute("SELECT SUM(debt) FROM billing")
-    total_market_debt = c.fetchone()[0] or 0
-    
-    p_col1.metric("🔴 منتهي حالياً", f"{expired_num}")
-    p_col2.metric("🔵 بينتهي قريباً", f"{near_expiry_num}")
-    p_col3.metric("💰 ديونك بالسوق", f"${total_market_debt}")
+    total_debt = c.fetchone()[0] or 0
+    c1.metric("💰 إجمالي الديون", f"${total_debt}")
+    c2.metric("🔴 منتهي", len(db_df[db_df['expiry_date'] < now]))
+    c3.metric("🟢 شغال", len(db_df[db_df['expiry_date'] >= now]))
 
-    st.divider()
-
-    # --- جدول البيانات ---
+    # --- الجدول ---
     rows = []
-    for _, r in df.iterrows():
-        u = str(r['Username'])
-        c.execute("SELECT debt FROM billing WHERE username=?", (u,))
-        debt = (c.fetchone() or (0,))[0]
-        
-        if view == "عليه دين فقط" and debt == 0: continue
-        if view == "خالصين" and debt > 0: continue
-        
-        exp = r[date_col]
-        status = "🔴" if pd.notna(exp) and exp < now else "🔵" if pd.notna(exp) and exp < (now + timedelta(days=3)) else "🟢"
+    for _, r in db_df.iterrows():
+        u, debt, exp = r['username'], r['debt'], r['expiry_date']
+        status = "🔴" if pd.notna(exp) and exp < now else "🟢"
         rows.append({"ح": status, "المشترك": u, "تاريخ": exp.strftime('%d/%m') if pd.notna(exp) else "??", "الدين": f"${debt}"})
-    
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    # --- إدارة المشترك الفردي ---
+    # --- إدارة المشترك ---
     st.divider()
-    st.subheader("⚙️ إدارة المشترك المحدد")
-    target = st.selectbox("اختر اسم المشترك للتعامل معه:", [""] + [r['المشترك'] for r in rows])
+    target = st.selectbox("إدارة مشترك محدد:", [""] + [r['المشترك'] for r in rows])
 
     if target:
-        u_row = df[df['Username'] == target].iloc[0]
-        phone = u_row.get('Mobile Number', u_row.get('Phone Number', ''))
-        price = get_price(u_row['Service'])
-        c.execute("SELECT debt FROM billing WHERE username=?", (target,))
-        curr_debt = c.fetchone()[0]
+        c.execute("SELECT * FROM billing WHERE username=?", (target,))
+        u_data = c.fetchone()
+        curr_debt, service, phone = u_data[1], u_data[3], u_data[5]
+        price = get_price(service)
 
-        st.info(f"المشترك: **{target}** | الخدمة: **{u_row['Service']}** | الحساب الحالي: **${curr_debt}**")
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button(f"✅ تسجيل قبض ${price}", type="primary", use_container_width=True):
-                c.execute("UPDATE billing SET debt = MAX(0, debt - ?), paid_amount = paid_amount + ? WHERE username = ?", (price, price, target))
-                add_log(f"قبض ${price} من {target}")
+        st.info(f"الزبون: **{target}** | الدين الحالي: **${curr_debt}**")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button(f"✅ قبض ${price}", type="primary"):
+                c.execute("UPDATE billing SET debt = MAX(0, debt - ?) WHERE username = ?", (price, target))
+                add_log(f"قبض {price} من {target}")
                 conn.commit()
                 st.rerun()
-        with c2:
-            with st.popover("➕ إضافة دين قديم/سابق"):
-                old_val = st.number_input("المبلغ:", step=1.0)
-                if st.button("تأكيد الإضافة"):
-                    c.execute("UPDATE billing SET debt = debt + ? WHERE username = ?", (old_val, target))
-                    add_log(f"إضافة مبلغ {old_val} لحساب {target}")
+        with col2:
+            with st.popover("➕ إضافة دين"):
+                val = st.number_input("المبلغ:", step=1.0)
+                if st.button("تأكيد"):
+                    c.execute("UPDATE billing SET debt = debt + ? WHERE username = ?", (val, target))
                     conn.commit()
                     st.rerun()
-        with c3:
-            if st.button("🗑️ تصفير الحساب تماماً", use_container_width=True):
+        with col3:
+            if st.button("🗑️ تصفير"):
                 c.execute("UPDATE billing SET debt = 0 WHERE username = ?", (target,))
-                add_log(f"تصفير حساب {target}")
                 conn.commit()
                 st.rerun()
 
-        # أزرار الواتساب
-        st.write("📲 مراسلة فورية:")
-        w1, w2, w3, w4 = st.columns(4)
-        w1.link_button("⏳ قرب الانتهاء", send_whatsapp(phone, f"مرحباً {target}، اشتراكك بيخلص خلال يومين."))
-        w2.link_button("🚫 انتهى الاشتراك", send_whatsapp(phone, f"عزيزي {target}، انتهى اشتراكك اليوم. يرجى التجديد."))
-        w3.link_button("💸 تذكير بالدفع", send_whatsapp(phone, f"تذكير: المبلغ المستحق بذمتكم هو ${curr_debt}."))
-        w4.link_button("✅ تم التشريج", send_whatsapp(phone, f"تم تجديد حسابك. الحساب الحالي المطلوبة: ${curr_debt}."))
+        st.write("📲 واتساب سريع:")
+        w1, w2 = st.columns(2)
+        w1.link_button("💸 تذكير بالدين", send_whatsapp(phone, f"تذكير: المبلغ المطلوب هو ${curr_debt}"))
+        w2.link_button("✅ تم التجديد", send_whatsapp(phone, f"تم تجديد اشتراكك. الحساب: ${curr_debt}"))
 
-    # --- سجل العمليات ---
+    # --- السجل ---
     st.divider()
-    st.subheader("📜 آخر التحركات في السيستم")
-    log_df = pd.read_sql_query("SELECT action as 'العملية', time as 'الوقت' FROM logs ORDER BY id DESC LIMIT 5", conn)
-    st.table(log_df)
+    st.subheader("📜 آخر العمليات")
+    st.table(pd.read_sql_query("SELECT action as 'العملية', time as 'الوقت' FROM logs ORDER BY id DESC LIMIT 5", conn))
+
 else:
-    st.info("يرجى رفع ملف Radius 2.csv للبدء.")
+    st.warning("البرنامج فارغ. يرجى رفع ملف CSV لأول مرة لتخزين البيانات.")
