@@ -1,97 +1,77 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
-# 1. إعدادات الواجهة
-st.set_page_config(page_title="Future Net Radius", layout="wide")
+# 1. إعدادات الصفحة
+st.set_page_config(page_title="Future Net Manager", layout="wide")
 
 def load_data():
     try:
-        # قراءة الرابط من Secrets
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        
-        # قراءة البيانات مع تجاهل الأسطر الفارغة
+        # قراءة أول سطر فقط لنعرف العناوين وننظفها
         df = pd.read_csv(url, skip_blank_lines=True)
-        
-        # تنظيف الأعمدة (إزالة أي مسافات مخفية أو أحرف غريبة)
+        # تنظيف شامل لكل العناوين (مسح فراغات وتحويل لحروف صغيرة للمقارنة)
         df.columns = df.columns.astype(str).str.strip()
-        
-        # حذف أي سطر فارغ تماماً من الداتا
-        df = df.dropna(how='all')
-
-        # تحويل الأعمدة الأساسية وتأمين وجودها
-        if 'Status' in df.columns:
-            df['Status'] = df['Status'].astype(str).fillna('Unknown')
-        
-        if 'Selling Price' in df.columns:
-            # تنظيف السعر من أي علامة $ أو حروف وتحويله لرقم
-            df['Selling Price'] = pd.to_numeric(df.astype(str)['Selling Price'].str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
-            
-        if 'Expiry Date' in df.columns:
-            df['Expiry Date'] = pd.to_datetime(df['Expiry Date'], errors='coerce').dt.date
-            
         return df
     except Exception as e:
-        st.error(f"⚠️ خطأ في جلب البيانات: {e}")
+        st.error(f"خطأ في الاتصال: {e}")
         return pd.DataFrame()
 
-# تحميل البيانات
 df = load_data()
 
-# عنوان التطبيق
-st.title("🌐 Future Net Radius Manager")
+st.title("🌐 Future Net Radius")
 
-# اختبار سريع (بيظهر لك فقط إذا الجدول فاضي)
-if df.empty:
-    st.warning("⚠️ الجدول فارغ حالياً.")
-    st.info("تأكد من أن رابط الـ CSV في Secrets صحيح ومن وجود بيانات في ملف Google Sheets.")
-    if st.button("🔄 محاولة تحديث"):
-        st.cache_data.clear()
-        st.rerun()
-else:
-    # 2. حساب الإحصائيات (الداشبورد)
+if not df.empty:
+    # دالة ذكية لإيجاد العمود حتى لو فيه اختلاف بسيط بالتسمية
+    def get_col(target_name):
+        for col in df.columns:
+            if target_name.lower() in col.lower():
+                return col
+        return None
+
+    # تحديد أسماء الأعمدة الحقيقية الموجودة بالملف
+    status_col = get_col('Status')
+    price_col = get_col('Selling Price')
+    name_col = get_col('Name')
+    expiry_col = get_col('Expiry Date')
+
+    # حساب الإحصائيات بأمان (بدون KeyError)
     total_users = len(df)
     
-    # فلترة الحالات (نشط، منتهي، أونلاين)
-    active_count = len(df[df['Status'].str.contains('Active|Online', case=False, na=False)])
-    expired_count = len(df[df['Status'].str.contains('Expired', case=False, na=False)])
-    revenue = df['Selling Price'].sum() if 'Selling Price' in df.columns else 0
+    active_users = 0
+    if status_col:
+        active_users = len(df[df[status_col].astype(str).str.contains('Active|Online', case=False, na=False)])
 
-    # عرض البطاقات
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("إجمالي المشتركين", total_users)
-    col2.metric("نشط / أونلاين", active_count)
-    col3.metric("منتهي", expired_count)
-    col4.metric("المداخيل", f"${revenue:,.2f}")
+    revenue = 0
+    if price_col:
+        # تحويل السعر لرقم بأمان
+        temp_price = pd.to_numeric(df[price_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
+        revenue = temp_price.sum()
+
+    # عرض المربعات العلوية
+    c1, c2, c3 = st.columns(3)
+    c1.metric("إجمالي المشتركين", total_users)
+    c2.metric("نشط / أونلاين", active_users)
+    c3.metric("إجمالي المبيعات", f"${revenue:,.2f}")
 
     st.divider()
 
-    # 3. أدوات التحكم الجانبية
-    st.sidebar.header("البحث والفلترة")
-    search = st.sidebar.text_input("🔎 ابحث عن اسم أو يوزر:")
-    
-    # تطبيق البحث
+    # البحث
+    search = st.sidebar.text_input("🔍 ابحث هنا:")
     if search:
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
-    # 4. عرض الجدول النهائي
-    st.subheader("📋 قائمة المشتركين")
+    # عرض الجدول (الأعمدة اللي لاقاها البرنامج بس)
+    cols_to_show = [c for c in [name_col, status_col, expiry_col, price_col] if c is not None]
     
-    # اختيار أعمدة العرض الأساسية (بناءً على السطر اللي بعتلي ياه)
-    main_cols = ['Name', 'Username', 'Status', 'Expiry Date', 'Selling Price', 'Mobile Number', 'Signal Strength']
-    # التأكد من عرض الأعمدة الموجودة فعلياً فقط
-    display_cols = [c for c in main_cols if c in df.columns]
-    
-    if display_cols:
-        st.dataframe(df[display_cols], width='stretch')
+    st.subheader("📋 قائمة البيانات")
+    if cols_to_show:
+        st.dataframe(df[cols_to_show], width='stretch')
     else:
-        st.dataframe(df, width='stretch') # عرض كل الأعمدة إذا لم يجد العناوين المحددة
+        st.dataframe(df, width='stretch') # إذا ما عرف شي بيعرض كل شي
 
-    # زر التحميل الاحتياطي
-    csv_backup = df.to_csv(index=False).encode('utf-8')
-    st.sidebar.download_button("📥 تحميل Backup CSV", csv_backup, "future_net_data.csv", "text/csv")
+else:
+    st.warning("⚠️ الملف فارغ أو الرابط غير صحيح.")
 
-# زر التحديث في القائمة الجانبية
-if st.sidebar.button("🔄 تحديث البيانات"):
+if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
