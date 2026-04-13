@@ -1,141 +1,104 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Future Net Admin Pro", layout="wide")
 
-# تصميم CSS: تصغير الخطوط، تحسين المربعات، وألوان واضحة للحالات
+# تصميم الألوان والخطوط الصغيرة
 st.markdown("""
     <style>
-    .card { 
-        background-color: #1e1e1e; 
-        border-radius: 10px; 
-        padding: 10px; 
-        margin-bottom: 8px; 
-        border-left: 5px solid #007bff;
-    }
-    .client-name { font-size: 0.95rem; font-weight: bold; color: #ffffff; margin-bottom: 2px; }
-    .status-tag { font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 6px; }
-    .info-box { background-color: #2b2b2b; padding: 6px; border-radius: 6px; color: #d0d0d0; font-size: 0.8rem; line-height: 1.3; }
-    .wa-btn { 
-        display: block; width: 100%; padding: 6px; text-align: center; border-radius: 5px; 
-        text-decoration: none !important; font-weight: bold; font-size: 0.75rem; color: white !important; margin-top: 4px;
-    }
-    .btn-alert { background-color: #f39c12; } 
-    .btn-pay { background-color: #d35400; } 
-    .btn-stop { background-color: #c0392b; }
+    .card { background-color: #1e1e1e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 5px solid #007bff; }
+    .client-name { font-size: 0.9rem; font-weight: bold; color: white; margin-bottom: 2px; }
+    .status-tag { font-size: 0.7rem; font-weight: bold; padding: 2px 5px; border-radius: 4px; display: inline-block; margin-bottom: 5px; }
+    .info-box { background-color: #2b2b2b; padding: 6px; border-radius: 5px; color: #ccc; font-size: 0.8rem; line-height: 1.2; }
+    .wa-btn { display: block; width: 100%; padding: 6px; text-align: center; border-radius: 4px; text-decoration: none !important; font-weight: bold; font-size: 0.75rem; color: white !important; margin-top: 3px; }
+    .btn-1 { background-color: #f39c12; } .btn-2 { background-color: #d35400; } .btn-3 { background-color: #c0392b; }
     </style>
 """, unsafe_allow_html=True)
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # قراءة البيانات مع تحديد أسماء الأعمدة يدوياً بناءً على طلبك
-        df = pd.read_csv(url)
+        # قراءة كل الداتا بدون عناوين أولية
+        raw_df = pd.read_csv(url, header=None)
         
-        # إعادة تسمية الأعمدة بناءً على الترتيب (A, B, C, D...)
-        new_cols = {
-            df.columns[0]: 'Name',      # كولون A
-            df.columns[1]: 'Status',    # كولون B
-            df.columns[2]: 'Service',   # كولون C
-            df.columns[3]: 'Timestamp'  # كولون D (وقت التشريج)
-        }
-        df.rename(columns=new_cols, inplace=True)
+        # البحث عن السطر اللي فيه أول اسم (تجاهل Radius وأي Unnamed)
+        # رح ندور على أول سطر بيحتوي داتا حقيقية في العمود الأول
+        start_row = 0
+        for i in range(len(raw_df)):
+            val = str(raw_df.iloc[i, 0]).lower()
+            if val != 'nan' and val != 'radius' and val != 'name':
+                start_row = i
+                break
         
-        # تنظيف البيانات
-        df = df[df['Name'].notna()].reset_index(drop=True)
+        # إعادة القراءة وتثبيت الأعمدة A, B, C, D
+        df = pd.read_csv(url, skiprows=start_row, header=None)
         
-        # معالجة التاريخ (كولون D) لترتيب المشتركين
-        if 'Timestamp' in df.columns:
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
-            # ترتيب من الأقدم للأحدث (اللي شحن من زمان بيطلع أول شي لأنه قرب يخلص)
-            df = df.sort_values(by='Timestamp', ascending=True)
-            
+        # تسمية الأعمدة بناءً على طلبك
+        # A=0, B=1, C=2, D=3, والبيع رح نعتبره E=4 أو F=5 حسب ملفك
+        df = df.iloc[:, :6] # ناخد أول 6 أعمدة للامان
+        df.columns = ['Name', 'Status', 'Service', 'Timestamp', 'Mobile', 'Price']
+        
+        # تنظيف
+        df = df[df['Name'].notna()]
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+        
+        # الترتيب: من الأقدم للأحدث (الخالص أول)
+        df = df.sort_values(by='Timestamp', ascending=True)
         return df
     except Exception as e:
-        st.error(f"خطأ في تحميل البيانات: {e}")
+        st.error(f"خطأ: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-# --- القائمة الجانبية ---
-st.sidebar.title("⭐ Future Net")
-menu = st.sidebar.selectbox("القائمة:", ["📱 الرادار", "💵 المحاسبة", "💾 النسخ والتقارير"])
+st.title("🌐 Future Net Pro")
 
-if menu == "📱 الرادار":
-    st.title("📡 رادار المشتركين")
-    search = st.text_input("🔍 بحث عن اسم، خدمة أو حالة:")
-    
+if not df.empty:
+    search = st.text_input("🔍 بحث سريع:")
     if search:
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
+    today = datetime.now()
     cols = st.columns(2)
-    for idx, row in df.iterrows():
+    
+    for idx, row in df.reset_index(drop=True).iterrows():
         with cols[idx % 2]:
-            status = str(row.get('Status', 'Offline')).strip().lower()
+            status = str(row['Status']).strip().upper()
+            st_color = "#2ecc71" if "ON" in status or "ACT" in status else "#ff4b4b"
             
-            # تحديد لون الحالة بناءً على كولون B
-            color_map = {
-                'online': '#2ecc71',
-                'active': '#2ecc71',
-                'blocked': '#95a5a6',
-                'expired': '#ff4b4b',
-                'offline': '#e67e22'
-            }
-            current_color = color_map.get(status, '#ffffff')
-            
+            # حساب الأيام المتبقية تقريبياً (إذا الشهر 30 يوم)
+            days_left = "N/A"
+            if pd.notnull(row['Timestamp']):
+                expiry_date = row['Timestamp'] + pd.Timedelta(days=30)
+                days_left = (expiry_date - today).days
+
             st.markdown(f"""
                 <div class="card">
                     <div class="client-name">{row['Name']}</div>
-                    <div class="status-tag" style="color:{current_color}; border: 1px solid {current_color};">
-                        ● {status.upper()}
-                    </div>
+                    <div class="status-tag" style="color:{st_color}; border: 1px solid {st_color};">● {status}</div>
                     <div class="info-box">
-                        <b>🛠 الخدمة:</b> {row.get('Service', 'N/A')}<br>
-                        <b>📅 آخر تشريج:</b> {row.get('Timestamp', 'N/A')}<br>
-                        <b>💰 السعر:</b> ${row.get('Selling Price', '0')}
+                        <b>🛠 {row['Service']}</b> | ⏳ باقي: {days_left} يوم<br>
+                        <b>💰 الدين:</b> ${row['Price']} | 📅 {row['Timestamp']}
                     </div>
             """, unsafe_allow_html=True)
 
-            # أزرار الواتساب المختصرة
-            phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
-            if phone and phone != 'nan':
-                m1 = quote(f"تنبيه من فيوتشر نت: اشتراكك ({row.get('Service')}) قارب على الانتهاء.")
-                m2 = quote(f"يرجى تسديد الحساب لتجديد الخدمة. شكراً.")
-                m3 = quote(f"سيتم إيقاف الخدمة حالاً لعدم تسديد المستحقات.")
-                
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-alert">⚠️ تنبيه</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-pay">💸 طلب دفع</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-stop">🚫 إيقاف</a>', unsafe_allow_html=True)
+            phone = str(row['Mobile']).replace('.0', '').strip()
+            if phone != 'nan' and len(phone) > 5:
+                m1 = quote(f"تنبيه: اشتراكك ينتهي قريباً.")
+                m2 = quote(f"يرجى دفع ${row['Price']} لتجديد الخدمة.")
+                m3 = quote(f"تنبيه أخير: سيتم قطع الخط لعدم الدفع.")
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 إيقاف</a>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-elif menu == "💵 المحاسبة":
-    st.title("⚖️ إدارة الديون")
-    user = st.selectbox("اختر الزبون:", df['Name'].unique())
-    u_row = df[df['Name'] == user].iloc[0]
-    
-    # استخراج السعر الحالي من الكولون المناسب
-    curr_debt = float(pd.to_numeric(u_row.get('Selling Price', 0), errors='coerce') or 0)
-    
-    st.info(f"الزبون: **{user}** | الحساب الحالي: **${curr_debt}**")
-    
-    c1, c2 = st.columns(2)
-    with c1: plus = st.number_input("زيادة (+)", min_value=0.0)
-    with c2: minus = st.number_input("نقص (-)", min_value=0.0)
-    
-    st.subheader(f"الحساب الجديد: :green[${curr_debt + plus - minus}]")
-    st.caption("ملاحظة: عدّل الرقم النهائي في ملف الإكسل.")
-
-elif menu == "💾 النسخ والتقارير":
-    st.title("💾 النسخ الاحتياطي")
-    total = pd.to_numeric(df['Selling Price'], errors='coerce').sum()
-    st.metric("إجمالي المبالغ المطلوبة", f"${total:,.2f}")
-    
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 تحميل نسخة إكسل (Backup)", csv, f"FutureNet_{datetime.now().date()}.csv")
-
-if st.sidebar.button("🔄 تحديث"):
+# أزرار التحديث والنسخ بالجنب
+if st.sidebar.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
+
+csv = df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button("📥 Backup CSV", csv, "FutureNet.csv")
