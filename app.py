@@ -1,4 +1,4 @@
-import import streamlit as st
+import streamlit as st
 import pandas as pd
 from urllib.parse import quote
 from datetime import datetime, timedelta
