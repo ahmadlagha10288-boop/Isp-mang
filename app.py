@@ -44,7 +44,6 @@ if not df.empty:
         # ذكاء الألوان: 
         # أخضر = Online
         # أحمر = Expired
-        # برتقالي = إذا كان التاريخ اليوم (تنبيه قرب يخلص)
         if "Online" in status:
             card_color = "#2ecc71" 
         else:
