@@ -1,73 +1,78 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Future Net - Clean View", layout="wide")
+st.set_page_config(page_title="Future Net Manager", layout="wide")
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         df = pd.read_csv(url)
-        # تنظيف العناوين من أي فراغات خفية
+        # تنظيف العناوين
         df.columns = df.columns.astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"خطأ: {e}")
+        st.error(f"Error: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-st.title("🌐 Future Net Manager")
+st.title("🌐 Future Net Radius")
 
 if not df.empty:
-    # --- دالة ذكية لإيجاد الأعمدة حتى لو في اختلاف بسيط بالاسم ---
-    def find_column(options):
-        for col in df.columns:
-            if any(opt.lower() in col.lower() for opt in options):
-                return col
-        return None
-
-    # منحدد الأعمدة بناءً على اللي طلبته
-    target_cols = {
-        'الاسم': find_column(['Name', 'الاسم', 'Customer']),
-        'نوع الخدمة': find_column(['Service', 'الخدمة', 'Plan']),
-        'التاريخ': find_column(['Expiry Date', 'تاريخ', 'End Date']),
-        'رقم الهاتف': find_column(['Mobile Number', 'Phone', 'تلفون']),
-        'الحالة': find_column(['Status', 'حالة', 'Online'])
-    }
-
-    # منشيل الـ None (الأعمدة اللي ما لاقاها)
-    existing_cols = {v: k for k, v in target_cols.items() if v is not None}
+    # --- اختيار الأعمدة حسب الأسماء الإنجليزية اللي بعتتها ---
+    # هول الـ 5 اللي طلبتهم بالضبط
+    target_english = ['Name', 'Service', 'Expiry Date', 'Mobile Number', 'Status']
     
-    if existing_cols:
-        # منعمل جدول جديد فيه بس اللي لاقيناه
-        display_df = df[list(existing_cols.keys())].copy()
-        # منغير الأسماء للعربي
-        display_df = display_df.rename(columns=existing_cols)
-
-        # إحصائيات سريعة
-        c1, c2 = st.columns(2)
-        c1.metric("👥 عدد الزبائن", len(df))
+    # فحص الأعمدة الموجودة فعلياً
+    available = [c for c in target_english if c in df.columns]
+    
+    if len(available) > 0:
+        # عرض فقط الأعمدة الـ 5
+        display_df = df[available].copy()
         
-        # عرض الجدول مع تلوين الحالة إذا موجودة
-        def color_status(val):
+        # تحسين شكل العناوين للعرض فقط
+        display_df.columns = [c.replace('Mobile Number', 'Phone').replace('Expiry Date', 'Expiry') for c in display_df.columns]
+
+        # الإحصائيات
+        c1, c2 = st.columns(2)
+        c1.metric("Total Customers", len(df))
+        
+        # حساب الأونلاين
+        online_count = 0
+        if 'Status' in df.columns:
+            online_count = len(df[df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)])
+        c2.metric("Online Now", online_count)
+
+        st.divider()
+
+        # دالة تلوين الحالة (Status)
+        def style_status(val):
             v = str(val).lower()
-            if 'online' in v or 'active' in v: return 'background-color: #d4edda; color: #155724'
-            if 'offline' in v or 'expired' in v: return 'background-color: #f8d7da; color: #721c24'
+            if 'online' in v or 'active' in v:
+                return 'background-color: #d4edda; color: #155724; font-weight: bold'
+            if 'offline' in v or 'expired' in v:
+                return 'background-color: #f8d7da; color: #721c24; font-weight: bold'
             return ''
 
-        st.subheader("📋 القائمة المطلوبة")
-        if 'الحالة' in display_df.columns:
-            st.dataframe(display_df.style.applymap(color_status, subset=['الحالة']), use_container_width=True)
+        # البحث
+        search = st.sidebar.text_input("🔍 Search:")
+        if search:
+            display_df = display_df[display_df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
+
+        # عرض الجدول
+        if 'Status' in display_df.columns:
+            st.dataframe(display_df.style.applymap(style_status, subset=['Status']), use_container_width=True)
         else:
             st.dataframe(display_df, use_container_width=True)
+            
     else:
-        # إذا فشل الكود بمعرفة الأسماء، بيعرض الجدول كامل عشان ما يختفوا الزباين
-        st.warning("⚠️ لم أستطع تحديد الأعمدة المطلوبة بدقة، إليك الجدول الكامل:")
+        # إذا ما لقى الأسماء الإنجليزية، بيعرض كل شي عشان ما يختفوا
+        st.warning("Column names didn't match. Showing all data:")
         st.dataframe(df, use_container_width=True)
 
 else:
-    st.info("الجدول فارغ أو الرابط غير صحيح.")
+    st.info("The sheet is empty or the URL is wrong.")
 
-if st.sidebar.button("🔄 تحديث"):
+if st.sidebar.button("🔄 Refresh"):
     st.cache_data.clear()
     st.rerun()
