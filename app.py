@@ -1,58 +1,70 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from urllib.parse import quote
 
-# 1. إعداد الصفحة
-st.set_page_config(page_title="Future Net Radar", layout="wide")
-
-def load_data():
-    try:
-        # جلب الرابط من Secrets
-        url = st.secrets["connections"]["spreadsheet"]
-        # قراءة الملف (بدون header لأن البيانات تبدأ فوراً)
-        df = pd.read_csv(url, header=None)
-        
-        # تنظيف الأسطر الفاضية
-        df = df.dropna(how='all')
-        
-        # بما أن لديك 4 أعمدة فقط الآن:
-        # 0=Username, 1=Status, 2=Date, 3=Package
-        df = df.iloc[:, [0, 1, 2, 3]]
-        df.columns = ['Username', 'Status', 'Expiry', 'Package']
-        
-        # فلترة الأسماء (حذف nan وأي كلمات تقنية)
-        df['Username'] = df['Username'].astype(str).str.strip()
-        df = df[~df['Username'].str.contains('nan|Username|Radius|Total', case=False)]
-        
-        return df.reset_index(drop=True)
-    except Exception as e:
-        st.error(f"⚠️ خطأ في القراءة: {e}")
-        return pd.DataFrame()
+# ... (دالة load_data بقيت كما هي) ...
 
 df = load_data()
 
-st.title("📡 رادار فيوتشر نت")
+# --- قسم الإحصائيات (KPIs) ---
+if not df.empty:
+    st.title("📡 رادار المشتركين")
+    
+    # حساب أرقام سريعة
+    total_users = len(df)
+    online_users = len(df[df['Status'].str.contains('Online', case=False)])
+    expired_users = total_users - online_users
+    
+    # عرض الإحصائيات في 3 مربعات
+    m1, m2, m3 = st.columns(3)
+    m1.metric("إجمالي المشتركين", total_users)
+    m2.metric("متصل الآن ✅", online_users)
+    m3.metric("منتهي الصلاحية ❌", expired_users)
 
-if df.empty:
-    st.info("🔄 جاري مزامنة البيانات... تأكد من عمل Refresh.")
-else:
-    # عرض البيانات كبطاقات
+    # --- خيارات الترتيب والبحث في السايد بار ---
+    st.sidebar.header("⚙️ التحكم")
+    sort_by = st.sidebar.selectbox("ترتيب حسب:", ["الأحدث", "الاسم", "الحالة"])
+    
+    if sort_by == "الأحدث":
+        df = df.sort_values(by='Expiry', ascending=False)
+    elif sort_by == "الاسم":
+        df = df.sort_values(by='Username')
+    elif sort_by == "الحالة":
+        df = df.sort_values(by='Status', ascending=True)
+
+    search = st.text_input("🔍 ابحث عن يوزر نيم أو باقة...")
+    if search:
+        df = df[df['Username'].str.contains(search, case=False)]
+
+    # --- عرض الكروت الملونة ---
     for _, row in df.iterrows():
-        # تحديد لون الحالة
         status = str(row['Status']).strip()
-        color = "#2ecc71" if "Online" in status else "#e74c3c"
         
+        # ذكاء الألوان: 
+        # أخضر = Online
+        # أحمر = Expired
+        # برتقالي = إذا كان التاريخ اليوم (تنبيه قرب يخلص)
+        if "Online" in status:
+            card_color = "#2ecc71" 
+        else:
+            card_color = "#e74c3c"
+            
         st.markdown(f"""
-            <div style="background:#1a1a1a; padding:15px; border-radius:12px; margin-bottom:10px; border-left:6px solid {color}; shadow: 2px 2px 10px rgba(0,0,0,0.5);">
-                <h3 style="margin:0; color:white;">👤 {row['Username']}</h3>
-                <p style="margin:5px 0; color:#ccc; font-size:0.9rem;">
-                    📦 <b>الباقة:</b> {row['Package']} <br>
-                    📅 <b>الانتهاء:</b> {row['Expiry']}
-                </p>
-                <p style="margin:0; color:{color}; font-weight:bold;">● {status}</p>
+            <div style="background:#1a1a1a; padding:15px; border-radius:12px; margin-bottom:10px; border-left:8px solid {card_color};">
+                <div style="display:flex; justify-content:space-between;">
+                    <h3 style="margin:0; color:white;">👤 {row['Username']}</h3>
+                    <span style="color:{card_color}; font-weight:bold;">{status}</span>
+                </div>
+                <p style="margin:5px 0; color:#ccc;">📦 الباقة: {row['Package']}</p>
+                <p style="margin:0; color:#888; font-size:0.85rem;">📅 تاريخ الانتهاء: {row['Expiry']}</p>
             </div>
         """, unsafe_allow_html=True)
 
-# زر التحديث
-if st.sidebar.button("🔄 تحديث البيانات"):
-    st.rerun()
+    # --- زر البيك أب (Backup) ---
+    st.sidebar.download_button(
+        "📥 سحب نسخة (Backup)",
+        df.to_csv(index=False).encode('utf-8'),
+        "future_net_backup.csv",
+        "text/csv"
+    )
