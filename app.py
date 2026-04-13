@@ -1,17 +1,18 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Future Net Manager", layout="wide")
+st.set_page_config(page_title="Future Net Radius", layout="wide")
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = pd.read_csv(url)
+        # الحل السحري: نخبره أن العناوين في السطر الثاني (header=1)
+        df = pd.read_csv(url, header=1)
         # تنظيف العناوين
         df.columns = df.columns.astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
 df = load_data()
@@ -19,29 +20,28 @@ df = load_data()
 st.title("🌐 Future Net Radius")
 
 if not df.empty:
-    # --- اختيار الأعمدة حسب الأسماء الإنجليزية اللي بعتتها ---
-    # هول الـ 5 اللي طلبتهم بالضبط
-    target_english = ['Name', 'Service', 'Expiry Date', 'Mobile Number', 'Status']
+    # --- اختيار الـ 5 أعمدة اللي طلبتهم بالضبط ---
+    # تأكدت من أسمائهم من الصورة اللي بعتها
+    requested_cols = ['Name', 'Service', 'Expiry Date', 'Mobile Number', 'Status']
     
-    # فحص الأعمدة الموجودة فعلياً
-    available = [c for c in target_english if c in df.columns]
+    # فحص الأعمدة المتوفرة فعلياً
+    available = [c for c in requested_cols if c in df.columns]
     
-    if len(available) > 0:
-        # عرض فقط الأعمدة الـ 5
+    if available:
+        # عرض الـ 5 أعمدة فقط
         display_df = df[available].copy()
         
         # تحسين شكل العناوين للعرض فقط
+        #Mobile Number -> Phone | Expiry Date -> Expiry
         display_df.columns = [c.replace('Mobile Number', 'Phone').replace('Expiry Date', 'Expiry') for c in display_df.columns]
 
-        # الإحصائيات
-        c1, c2 = st.columns(2)
-        c1.metric("Total Customers", len(df))
+        # الإحصائيات (Total Customers)
+        st.metric("Total Customers", len(df))
         
-        # حساب الأونلاين
-        online_count = 0
-        if 'Status' in df.columns:
-            online_count = len(df[df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)])
-        c2.metric("Online Now", online_count)
+        # حساب الأونلاين (Status)
+        if 'Status' in display_df.columns:
+            online_count = len(display_df[display_df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)])
+            st.metric("Online Now", online_count)
 
         st.divider()
 
@@ -55,7 +55,7 @@ if not df.empty:
             return ''
 
         # البحث
-        search = st.sidebar.text_input("🔍 Search:")
+        search = st.sidebar.text_input("🔍 Search Customers:")
         if search:
             display_df = display_df[display_df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
@@ -66,13 +66,14 @@ if not df.empty:
             st.dataframe(display_df, use_container_width=True)
             
     else:
-        # إذا ما لقى الأسماء الإنجليزية، بيعرض كل شي عشان ما يختفوا
+        # إذا ما لقى الأسماء، بيعرض كل شي عشان ما يختفوا
         st.warning("Column names didn't match. Showing all data:")
         st.dataframe(df, use_container_width=True)
 
 else:
-    st.info("The sheet is empty or the URL is wrong.")
+    st.info("The sheet is empty or the CSV URL is wrong.")
 
-if st.sidebar.button("🔄 Refresh"):
+# زر التحديث في القائمة الجانبية
+if st.sidebar.button("🔄 Refresh Data"):
     st.cache_data.clear()
     st.rerun()
