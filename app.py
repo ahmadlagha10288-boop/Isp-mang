@@ -6,14 +6,13 @@ from datetime import datetime
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Future Net Admin", layout="wide")
 
-# تصميم CSS: تصغير الخطوط وترتيب البطاقات
+# تصميم CSS بسيط وواضح
 st.markdown("""
     <style>
-    .card { background-color: #1e1e1e; border-radius: 10px; padding: 10px; margin-bottom: 8px; border-left: 5px solid #007bff; }
-    .client-name { font-size: 0.9rem; font-weight: bold; color: white; }
-    .status-tag { font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; }
-    .info-box { background-color: #2b2b2b; padding: 8px; border-radius: 6px; color: #ddd; font-size: 0.8rem; line-height: 1.3; margin-top: 5px; }
-    .wa-btn { display: block; width: 100%; padding: 7px; text-align: center; border-radius: 5px; text-decoration: none !important; font-weight: bold; font-size: 0.8rem; color: white !important; margin-top: 4px; }
+    .card { background-color: #1e1e1e; border-radius: 10px; padding: 12px; margin-bottom: 10px; border-left: 5px solid #007bff; border-bottom: 1px solid #333; }
+    .client-name { font-size: 1.1rem; font-weight: bold; color: #fff; }
+    .info-line { font-size: 0.9rem; color: #ccc; margin: 4px 0; }
+    .wa-btn { display: block; width: 100%; padding: 8px; text-align: center; border-radius: 5px; text-decoration: none !important; font-weight: bold; font-size: 0.85rem; color: white !important; margin-top: 5px; }
     .btn-1 { background-color: #f39c12; } .btn-2 { background-color: #d35400; } .btn-3 { background-color: #c0392b; }
     </style>
 """, unsafe_allow_html=True)
@@ -21,78 +20,74 @@ st.markdown("""
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = pd.read_csv(url)
-        # تنظيف الداتا من العناوين الفارغة والأسطر الوهمية
-        df = df[df.iloc[:, 0].notna()]
-        df = df[~df.iloc[:, 0].astype(str).str.contains('Radius|Action|Name|nan', case=False)]
+        # قراءة الشيت "خام" (Raw) بدون أسماء أعمدة
+        df = pd.read_csv(url, header=None)
         
-        # تحويل عمود التاريخ (تأكد إنه اسمه Expiry Date أو التاريخ بالإكسل)
-        for col in df.columns:
-            if 'date' in col.lower() or 'expiry' in col.lower() or 'تاريخ' in col:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-                df = df.sort_values(by=col, ascending=True) # الترتيب من الخالص للمطوّل
-                break
+        # حذف الأسطر اللي كلها فاضية
+        df = df.dropna(how='all').reset_index(drop=True)
+        
+        # فلترة ذكية: تجاهل الأسطر اللي فيها كلمات "Action" أو "Radius"
+        # هيدي بتنظف العناوين اللي طالعة بالصور عندك
+        df = df[~df.iloc[:, 0].astype(str).str.contains('Action|Radius|Name|nan', case=False)]
+        
+        # ترتيب حسب التاريخ (العمود الرابع D - Index 3)
+        # من الخالص (القديم) للجديد
+        try:
+            df[3] = pd.to_datetime(df[3], errors='coerce')
+            df = df.sort_values(by=3, ascending=True)
+        except:
+            pass
+            
         return df
-    except:
+    except Exception as e:
+        st.error(f"خطأ في الاتصال: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-# --- الواجهة ---
-st.sidebar.title("⭐ Future Net")
-menu = st.sidebar.selectbox("القائمة:", ["📱 الرادار", "💵 المحاسبة", "💾 Backup"])
+st.title("📡 رادار المشتركين")
 
-if menu == "📱 الرادار":
-    st.title("📡 رادار المشتركين")
+if df.empty:
+    st.warning("⚠️ لم يتم العثور على بيانات. تأكد من تحديث ملف الجوجل شيت.")
+else:
     search = st.text_input("🔍 بحث عن اسم أو رقم:")
     if search:
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
-    today = datetime.now()
-    cols = st.columns(2)
-    
-    for idx, row in df.reset_index(drop=True).iterrows():
-        with cols[idx % 2]:
-            name = row.iloc[0] # عمود A
-            status = str(row.iloc[1]) # عمود B
-            price = row.get('Selling Price', '0')
-            phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
-            
+    # عرض البيانات
+    for idx, row in df.iterrows():
+        # A=0 (الاسم), B=1 (الحالة), C=2 (الخدمة), D=3 (التاريخ), E=4 (السعر), F=5 (التلفون)
+        name = str(row[0])
+        status = str(row[1])
+        service = str(row[2])
+        date_val = str(row[3])
+        price = str(row[4])
+        phone = str(row[5]).replace('.0', '').strip()
+
+        with st.container():
             st.markdown(f"""
                 <div class="card">
                     <div class="client-name">{name}</div>
-                    <div class="status-tag" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71;">● {status}</div>
-                    <div class="info-box">
-                        💰 <b>الدين:</b> ${price} <br>
-                        📞 <b>الهاتف:</b> {phone}
-                    </div>
+                    <div class="info-line">🟢 الحالة: {status} | 🛠️ الخدمة: {service}</div>
+                    <div class="info-line">💰 السعر: ${price} | 📅 التاريخ: {date_val}</div>
             """, unsafe_allow_html=True)
             
-            if len(phone) > 5:
-                m1 = quote("تنبيه: اشتراكك ينتهي خلال 3 أيام.")
+            # أزرار الواتساب
+            if phone != 'nan' and len(phone) > 5:
+                # التأكد من مفتاح لبنان
+                full_phone = f"961{phone}" if not phone.startswith('961') else phone
+                
+                m1 = quote(f"تنبيه: اشتراكك ({service}) ينتهي قريباً.")
                 m2 = quote(f"يرجى تسديد مبلغ ${price} لتجديد الخدمة.")
-                m3 = quote("تنبيه أخير: سيتم إيقاف الخدمة اليوم.")
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير إيقاف</a>', unsafe_allow_html=True)
+                m3 = quote(f"تحذير: سيتم إيقاف الخدمة لعدم الدفع.")
+                
+                st.markdown(f'<a href="https://wa.me/{full_phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{full_phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{full_phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير إيقاف</a>', unsafe_allow_html=True)
+            
             st.markdown('</div>', unsafe_allow_html=True)
 
-elif menu == "💵 المحاسبة":
-    st.title("⚖️ إدارة الحسابات")
-    user = st.selectbox("الزبون:", df.iloc[:, 0].unique())
-    u_row = df[df.iloc[:, 0] == user].iloc[0]
-    curr = float(pd.to_numeric(u_row.get('Selling Price', 0), errors='coerce') or 0)
-    st.info(f"الحساب الحالي لـ {user}: **${curr}**")
-    p, m = st.columns(2)
-    plus = p.number_input("زيادة (+)")
-    minus = m.number_input("نقص (-)")
-    st.subheader(f"الصافي: ${curr + plus - minus}")
-
-elif menu == "💾 Backup":
-    st.title("💾 النسخة الاحتياطية")
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 تحميل ملف CSV", csv, "Backup.csv")
-
-if st.sidebar.button("🔄 Refresh"):
+# أزرار جانبية
+if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
