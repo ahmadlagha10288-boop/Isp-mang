@@ -1,92 +1,109 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
-from datetime import datetime
 
-# 1. إعدادات الصفحة
-st.set_page_config(page_title="Future Net - Cards View", layout="wide")
+# 1. إعداد الصفحة
+st.set_page_config(page_title="Future Net Manager", layout="wide")
 
-# تصميم CSS مخصص للبطاقات
+# تصميم البطاقات (Cards)
 st.markdown("""
     <style>
-    .user-card {
-        background-color: #1e1e1e;
-        border-radius: 10px;
-        padding: 15px;
-        margin-bottom: 10px;
-        border-left: 5px solid #007bff;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
-    }
+    .card { background-color: #1e1e1e; border-radius: 10px; padding: 15px; margin-bottom: 10px; border-left: 5px solid #007bff; }
     .status-online { color: #2ecc71; font-weight: bold; }
     .status-offline { color: #e74c3c; font-weight: bold; }
-    .client-name { font-size: 1.2rem; font-weight: bold; color: #ffffff; }
-    .info-label { color: #888888; font-size: 0.9rem; }
+    .name-text { font-size: 1.1rem; font-weight: bold; color: white; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = pd.read_csv(url, header=1)
+        # قراءة أولية للملف
+        raw_df = pd.read_csv(url)
+        
+        # البحث عن السطر اللي فيه العناوين الحقيقية (مثل Name أو Username)
+        header_row = 0
+        for i in range(min(10, len(raw_df))):
+            row_values = raw_df.iloc[i].astype(str).tolist()
+            if any('Name' in val or 'Username' in val for val in row_values):
+                header_row = i + 1
+                break
+        
+        # إعادة قراءة الملف من السطر الصحيح
+        df = pd.read_csv(url, header=header_row)
         df.columns = df.columns.astype(str).str.strip()
-        if 'Selling Price' in df.columns:
-            df['Selling Price'] = pd.to_numeric(df['Selling Price'].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
+        # حذف الأسطر الفاضية
+        df = df.dropna(subset=[df.columns[2]], thresh=1) if len(df.columns) > 2 else df.dropna(how='all')
         return df
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"خطأ في التحميل: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-st.title("🌐 Future Net - Clients Portal")
+st.title("🌐 Future Net Dashboard")
 
 if not df.empty:
-    # --- قسم البحث ---
-    search = st.text_input("🔍 ابحث عن زبون بالاسم أو الرقم:")
+    # --- الإحصائيات (تأمين الحسابات لتجنب الأخطاء) ---
+    total = len(df)
+    
+    # دالة ذكية لإيجاد الأعمدة حتى لو تغير اسمها
+    def get_col(names):
+        for n in names:
+            for col in df.columns:
+                if n.lower() in col.lower(): return col
+        return None
+
+    name_col = get_col(['Name', 'Customer'])
+    status_col = get_col(['Status', 'State'])
+    phone_col = get_col(['Mobile', 'Phone', 'تلفون'])
+    price_col = get_col(['Price', 'Selling'])
+
+    # حساب الأونلاين
+    online = 0
+    if status_col:
+        online = len(df[df[status_col].astype(str).str.contains('Online|Active', case=False, na=False)])
+
+    c1, c2 = st.columns(2)
+    c1.metric("إجمالي الزبائن", total)
+    c2.metric("نشط حالياً", online)
+
+    st.divider()
+
+    # --- البحث ---
+    search = st.text_input("🔍 ابحث عن زبون:")
     if search:
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
-    st.write(f"عرض {len(df)} مشترك")
-
-    # --- عرض الزبائن على شكل كولوم (Columns) وبطاقات ---
-    # منعمل 3 أعمدة بكل سطر
-    cols = st.columns(3)
-    
-    for index, row in df.iterrows():
-        # توزيع البطاقات على الأعمدة الثلاثة
-        with cols[index % 3]:
-            status = str(row['Status']).lower() if 'Status' in df.columns else ""
-            status_class = "status-online" if 'online' in status or 'active' in status else "status-offline"
-            status_text = "🟢 Online" if 'online' in status or 'active' in status else "🔴 Offline"
+    # --- عرض البطاقات ---
+    cols = st.columns(2)
+    for i, (idx, row) in enumerate(df.iterrows()):
+        with cols[i % 2]:
+            # جلب البيانات بأمان
+            c_name = row[name_col] if name_col else "بدون اسم"
+            c_status = str(row[status_col]) if status_col else "Unknown"
+            c_phone = str(row[phone_col]).replace('.0', '') if phone_col else ""
             
-            phone = str(row['Mobile Number']).replace('.0', '') if 'Mobile Number' in df.columns else ""
+            st_class = "status-online" if "Online" in c_status or "Active" in c_status else "status-offline"
             
-            # محتوى البطاقة
             st.markdown(f"""
-                <div class="user-card">
-                    <div class="client-name">{row['Name'] if 'Name' in df.columns else 'Unknown'}</div>
-                    <div class="{status_class}">{status_text}</div>
-                    <hr style="margin: 10px 0; border-color: #333;">
-                    <div><span class="info-label">Service:</span> {row['Service'] if 'Service' in df.columns else 'N/A'}</div>
-                    <div><span class="info-label">Expiry:</span> {row['Expiry Date'] if 'Expiry Date' in df.columns else 'N/A'}</div>
-                    <div><span class="info-label">Price:</span> ${row['Selling Price'] if 'Selling Price' in df.columns else '0'}</div>
+                <div class="card">
+                    <div class="name-text">{c_name}</div>
+                    <div class="{st_class}">{c_status}</div>
+                    <div style="font-size:0.9rem; margin-top:5px; color:#aaa;">
+                        Price: ${row.get(price_col, '0')}
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
             
-            # أزرار التفاعل تحت كل بطاقة
-            c1, c2 = st.columns(2)
-            with c1:
-                if phone:
-                    msg = quote(f"Hello {row['Name']}, your subscription is {row['Status']}. Please contact us for any help.")
-                    st.markdown(f"[📲 WhatsApp](https://wa.me/{phone}?text={msg})")
-            with c2:
-                if st.button(f"Details", key=f"btn_{index}"):
-                    st.info(f"Full Data for {row['Name']}: \n\n {row.to_dict()}")
+            # زر واتساب
+            if c_phone and c_phone != 'nan':
+                wa_msg = quote(f"مرحباً {c_name}، معك Future Net...")
+                st.markdown(f"[📲 مراسلة واتساب](https://wa.me/{c_phone}?text={wa_msg})")
 
 else:
-    st.warning("No data found in the spreadsheet.")
+    st.warning("⚠️ لم يتم العثور على بيانات بالجدول. تأكد من أن ملف جوجل شيت يحتوي على أسماء.")
 
-# زر التحديث
-if st.sidebar.button("🔄 Update Data"):
+if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
