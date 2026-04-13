@@ -2,82 +2,81 @@ import streamlit as st
 import pandas as pd
 
 # 1. إعدادات الصفحة
-st.set_page_config(page_title="Future Net Pro", layout="wide")
+st.set_page_config(page_title="Future Net Manager", layout="wide")
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        # قراءة البيانات وتنظيف أسماء الأعمدة فوراً
         df = pd.read_csv(url)
-        # أهم خطوة: تنظيف أسماء الأعمدة من أي فراغات خفية أو أحرف غريبة
         df.columns = df.columns.astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"خطأ في الاتصال: {e}")
+        st.error(f"خطأ في جلب البيانات: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-st.title("🚀 Future Net ISP Manager")
+st.title("🌐 Future Net Dashboard")
 
 if not df.empty:
-    # --- دالة للبحث عن الأعمدة بذكاء ---
-    def find_col(possible_names):
-        for col in df.columns:
-            if col.lower().strip() in [n.lower() for n in possible_names]:
-                return col
-        return None
+    # --- تحديد الـ 5 أعمدة اللي طلبتهم بالضبط ---
+    # ملاحظة: استخدمت الأسماء اللي بعتلي ياها بأول سطر
+    cols_map = {
+        'Name': 'الاسم',
+        'Service': 'نوع الخدمة',
+        'Expiry Date': 'تاريخ الانتهاء',
+        'Mobile Number': 'رقم الهاتف',
+        'Status': 'الحالة (Online/Offline)'
+    }
 
-    # تحديد الأعمدة الموجودة فعلياً
-    status_col = find_col(['Status', 'حالة'])
-    price_col = find_col(['Selling Price', 'السعر', 'Price'])
-    name_col = find_col(['Name', 'الاسم'])
+    # فحص أي أعمدة موجودة فعلياً في ملفك لتجنب أي خطأ
+    available_cols = [c for c in cols_map.keys() if c in df.columns]
     
-    # حساب الإحصائيات (فقط إذا الأعمدة موجودة)
+    # --- الإحصائيات العلوية ---
     total = len(df)
-    active = 0
-    if status_col:
-        active = len(df[df[status_col].astype(str).str.contains('Online|Active', case=False, na=False)])
-    
-    revenue = 0
-    if price_col:
-        rev_data = pd.to_numeric(df[price_col].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
-        revenue = rev_data.sum()
+    online = 0
+    if 'Status' in df.columns:
+        online = len(df[df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)])
 
-    # عرض المربعات
-    c1, c2, c3 = st.columns(3)
-    c1.metric("👥 إجمالي المشتركين", total)
-    c2.metric("🟢 نشط / أونلاين", active)
-    c3.metric("💰 المداخيل", f"${revenue:,.2f}")
+    col1, col2 = st.columns(2)
+    col1.metric("👥 إجمالي الزبائن", total)
+    col2.metric("🟢 أونلاين حالياً", online)
 
     st.divider()
 
-    # البحث
-    search = st.sidebar.text_input("🔍 بحث سريع:")
+    # --- البحث والجدول ---
+    search = st.sidebar.text_input("🔍 بحث عن زبون:")
     if search:
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
-    # عرض الجدول (الأعمدة الأساسية التي وجدها البرنامج)
-    # زدت لك ميزة: إذا ما لقى الأعمدة، بيعرض لك أول 10 أعمدة من الجدول عشان ما يضل فاضي
-    main_display = [c for c in [name_col, 'Username', status_col, 'Expiry Date', price_col, 'Mobile Number'] if c in df.columns]
+    st.subheader("📋 قائمة المشتركين المختصرة")
     
-    st.subheader("📋 قائمة المشتركين")
-    if main_display:
-        # إضافة الألوان يدوياً فقط لعمود الحالة إذا وجد
+    if available_cols:
+        # عرض الـ 5 أعمدة فقط مع إعادة تسميتهم للعربية لتسهيل القراءة
+        display_df = df[available_cols].rename(columns=cols_map)
+        
+        # إضافة ألوان لعمود الحالة (أخضر للأونلاين وأحمر للأوفلاين)
         def color_status(val):
-            if 'Online' in str(val) or 'Active' in str(val): return 'color: #2ecc71'
-            if 'Expired' in str(val) or 'Offline' in str(val): return 'color: #e74c3c'
+            v = str(val).lower()
+            if 'online' in v or 'active' in v: return 'color: #2ecc71; font-weight: bold'
+            if 'offline' in v or 'expired' in v: return 'color: #e74c3c; font-weight: bold'
             return ''
 
-        if status_col:
-            st.dataframe(df[main_display].style.applymap(color_status, subset=[status_col]), use_container_width=True)
+        # إذا كان عمود الحالة موجود، نطبق عليه الألوان
+        status_ar = cols_map.get('Status')
+        if status_ar in display_df.columns:
+            st.dataframe(display_df.style.applymap(color_status, subset=[status_ar]), use_container_width=True)
         else:
-            st.dataframe(df[main_display], use_container_width=True)
+            st.dataframe(display_df, use_container_width=True)
     else:
-        st.dataframe(df, use_container_width=True) # عرض كل شيء في حال فشل تحديد الأعمدة
+        # إذا ما لقى الأسماء بالضبط، بيعرض لك الجدول كما هو عشان ما يختفي شي
+        st.warning("⚠️ لم يتم العثور على الأعمدة بالأسماء المطلوبة، عرض الجدول الكامل:")
+        st.dataframe(df, use_container_width=True)
 
 else:
-    st.warning("الجدول فارغ. تأكد من رابط الـ CSV.")
+    st.info("الجدول فارغ، تأكد من الرابط في Secrets.")
 
-if st.sidebar.button("🔄 تحديث البيانات"):
+if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
