@@ -1,62 +1,83 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-# 1. إعدادات الصفحة لتناسب شاشة الموبايل
-st.set_page_config(
-    page_title="Future Net Manager",
-    page_icon="🌐",
-    layout="centered"
-)
+# 1. إعدادات الواجهة
+st.set_page_config(page_title="Future Net ISP Manager", layout="wide")
 
-# 2. دالة جلب البيانات من رابط الـ CSV المباشر
-def get_data():
+# 2. دالة جلب البيانات
+def load_data():
     try:
-        # بيقرأ الرابط من الـ Secrets اللي حطيناه
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # قراءة البيانات مع إلغاء الكاش لضمان تحديث البيانات دايماً
-        return pd.read_csv(url)
+        df = pd.read_csv(url)
+        # تنظيف وتحويل التاريخ
+        if 'Expiry Date' in df.columns:
+            df['Expiry Date'] = pd.to_datetime(df['Expiry Date'], errors='coerce').dt.date
+        # تحويل السعر لرقم
+        if 'Selling Price' in df.columns:
+            df['Selling Price'] = pd.to_numeric(df['Selling Price'], errors='coerce').fillna(0)
+        return df
     except Exception as e:
-        st.error(f"خطأ في الاتصال بالبيانات: {e}")
+        st.error(f"خطأ في التحميل: {e}")
         return pd.DataFrame()
 
-# تحميل البيانات
-df = get_data()
+df = load_data()
 
-# 3. واجهة المستخدم
-st.title("📱 Future Net ISP")
-st.markdown(f"**عدد المشتركين الكلي:** {len(df)}")
+# 3. الداشبورد الاحترافي (Dashboard)
+st.title("🌐 Future Net Radius Manager")
 
-# القائمة الجانبية
-menu = ["📊 عرض المشتركين", "🔍 بحث سريع", "ℹ️ معلومات السيرفر"]
-choice = st.sidebar.selectbox("القائمة", menu)
+if not df.empty:
+    # حساب الإحصائيات
+    total_users = len(df)
+    active_users = len(df[df['Status'].str.contains('Active|Online', na=False, case=False)])
+    expired_users = len(df[df['Status'].str.contains('Expired', na=False, case=False)])
+    total_revenue = df['Selling Price'].sum()
 
-if choice == "📊 عرض المشتركين":
-    st.subheader("قائمة المشتركين")
-    if not df.empty:
-        # عرض الجدول بشكل يتناسب مع عرض الشاشة
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.warning("لا توجد بيانات حالياً. تأكد من الرابط في Secrets.")
+    # عرض المربعات العلوية
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("إجمالي المشتركين", total_users)
+    col2.metric("نشط / أونلاين", active_users)
+    col3.metric("منتهي الصلاحية", expired_users, delta_color="inverse")
+    col4.metric("إجمالي المبيعات", f"${total_revenue:,.2f}")
 
-elif choice == "🔍 بحث سريع":
-    st.subheader("البحث عن مشترك")
-    search_q = st.text_input("ادخل اسم المشترك أو اليوزر...")
-    if search_q:
-        # البحث في كل الأعمدة
-        mask = df.apply(lambda row: row.astype(str).str.contains(search_q, case=False).any(), axis=1)
-        result = df[mask]
-        if not result.empty:
-            st.success(f"تم إيجاد {len(result)} مشترك")
-            st.table(result)
-        else:
-            st.error("لم يتم العثور على نتائج")
+    st.divider()
 
-elif choice == "ℹ️ معلومات السيرفر":
-    st.info("النظام موصول بـ Google Sheets ويعمل بنظام التحديث التلقائي.")
-    if st.button("🔄 تحديث البيانات الآن"):
-        st.cache_data.clear()
-        st.rerun()
+    # 4. القائمة الجانبية والفلترة
+    st.sidebar.header("لوحة التحكم")
+    
+    # فلترة حسب الحالة
+    if 'Status' in df.columns:
+        status_list = df['Status'].unique().tolist()
+        selected_status = st.sidebar.multiselect("فلترة حسب الحالة:", status_list, default=status_list)
+        df = df[df['Status'].isin(selected_status)]
 
-# تذييل الصفحة
-st.sidebar.markdown("---")
-st.sidebar.write("Developed for Future Net")
+    # بحث سريع
+    search = st.sidebar.text_input("🔍 بحث (اسم، يوزر، هاتف):")
+    if search:
+        df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
+
+    # 5. عرض البيانات المخصصة
+    st.subheader("📋 بيانات المشتركين")
+    # اختيار الأعمدة المهمة فقط للعرض السريع لتجنب زحمة الشاشة
+    display_cols = ['Name', 'Username', 'Status', 'Expiry Date', 'Selling Price', 'Mobile Number', 'Signal Strength']
+    available_cols = [c for c in display_cols if c in df.columns]
+    
+    st.dataframe(df[available_cols], use_container_width=True)
+
+    # 6. قسم الحسابات المالية
+    with st.expander("💰 تفاصيل الحسابات والقطاعات"):
+        if 'Sector' in df.columns:
+            sector_revenue = df.groupby('Sector')['Selling Price'].sum()
+            st.bar_chart(sector_revenue)
+
+    # 7. نسخة احتياطية (Backup)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button("📥 تحميل Backup (CSV)", csv, "future_net_full_backup.csv", "text/csv")
+
+else:
+    st.warning("لم يتم العثور على بيانات. تأكد من أن ملف جوجل شيت يحتوي على الأعمدة المذكورة.")
+
+# زر التحديث
+if st.sidebar.button("🔄 تحديث البيانات"):
+    st.cache_data.clear()
+    st.rerun()
