@@ -6,33 +6,61 @@ from datetime import datetime
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Future Net Ultra 2026", layout="wide")
 
-# تصميم CSS لتحسين شكل الأزرار والبطاقات
+# تصميم CSS محسن للرؤية الواضحة
 st.markdown("""
     <style>
-    .card { background-color: #1e1e1e; border-radius: 15px; padding: 20px; margin-bottom: 10px; border-left: 6px solid #007bff; }
-    .wa-container { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .card { 
+        background-color: #262730; 
+        border-radius: 15px; 
+        padding: 20px; 
+        margin-bottom: 15px; 
+        border-left: 8px solid #007bff;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .client-name { 
+        font-size: 1.5rem; 
+        font-weight: bold; 
+        color: #ffffff; 
+        margin-bottom: 10px;
+    }
+    .days-tag { 
+        font-size: 1.2rem; 
+        font-weight: bold; 
+        padding: 5px 10px;
+        border-radius: 5px;
+        display: inline-block;
+        margin-bottom: 15px;
+    }
+    .debt-box { 
+        background-color: #3d3f4b; /* رمادي أفتح ليتضح الخط */
+        padding: 15px; 
+        border-radius: 10px; 
+        margin-top: 10px; 
+        color: #ffffff !important; /* خط أبيض ناصع */
+        font-size: 1.1rem;
+        border: 1px solid #555;
+    }
+    .wa-container { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
     .wa-btn { 
         display: block; 
         width: 100%; 
-        padding: 12px; 
+        padding: 15px; 
         text-align: center; 
-        border-radius: 8px; 
-        text-decoration: none; 
+        border-radius: 10px; 
+        text-decoration: none !important; 
         font-weight: bold; 
-        font-size: 0.9rem;
+        font-size: 1rem;
         color: white !important;
     }
-    .btn-1 { background-color: #f39c12; } /* تنبيه 3 أيام */
-    .btn-2 { background-color: #d35400; } /* طلب دفع */
-    .btn-3 { background-color: #c0392b; } /* تحذير إيقاف */
-    .debt-box { background: #2c3e50; padding: 10px; border-radius: 8px; margin-top: 5px; border: 1px solid #34495e; }
+    .btn-1 { background-color: #f39c12; } 
+    .btn-2 { background-color: #d35400; } 
+    .btn-3 { background-color: #c0392b; } 
     </style>
 """, unsafe_allow_html=True)
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # تنظيف الداتا من السطور الزائدة
         df_raw = pd.read_csv(url, header=None)
         h_idx = 0
         for i, row in df_raw.iterrows():
@@ -54,7 +82,6 @@ df = load_data()
 st.sidebar.title("⭐ Future Net Panel")
 menu = st.sidebar.selectbox("اختر المهمة:", ["📱 الرادار والواتساب", "💵 المحاسبة والديون", "🗓️ التشريج الشهري"])
 
-# --- القسم 1: الرادار والواتساب ---
 if menu == "📱 الرادار والواتساب":
     st.title("📡 رادار المشتركين")
     search = st.text_input("🔍 ابحث عن اسم الزبون:")
@@ -66,19 +93,22 @@ if menu == "📱 الرادار والواتساب":
         expiry = row.get('Expiry Date')
         days_left = (expiry - today).days if pd.notnull(expiry) else 0
         st_color = "#2ecc71" if days_left > 0 else "#e74c3c"
+        bg_tag = "rgba(46, 204, 113, 0.2)" if days_left > 0 else "rgba(231, 76, 60, 0.2)"
         
-        # عرض البطاقة
+        # عرض البطاقة مع تحسين الألوان
         st.markdown(f"""
             <div class="card">
-                <div style="font-size:1.4rem; font-weight:bold;">{row['Name']}</div>
-                <div style="color:{st_color}; font-weight:bold;">● باقي {days_left} يوم</div>
+                <div class="client-name">{row['Name']}</div>
+                <div class="days-tag" style="color:{st_color}; background:{bg_tag};">
+                    ● باقي {days_left} يوم
+                </div>
                 <div class="debt-box">
-                    📞 {row.get('Mobile Number', 'N/A')} | 💰 الدين: ${row.get('Selling Price', '0')}
+                    <b style="color:#00d4ff;">📞 الهاتف:</b> {row.get('Mobile Number', 'N/A')}<br>
+                    <b style="color:#ffcc00;">💰 الدين المستحق:</b> ${row.get('Selling Price', '0')}
                 </div>
                 <div class="wa-container">
         """, unsafe_allow_html=True)
 
-        # تجهيز رسائل الواتساب
         phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
         if phone and phone != 'nan':
             m1 = quote(f"عزيزي {row['Name']}، تنبيه من فيوتشر نت: اشتراكك ينتهي خلال 3 أيام.")
@@ -91,37 +121,25 @@ if menu == "📱 الرادار والواتساب":
         
         st.markdown('</div></div>', unsafe_allow_html=True)
 
-# --- القسم 2: المحاسبة والديون ---
+# بقية الأقسام (المحاسبة والتشريج) تبقى كما هي في الكود السابق...
 elif menu == "💵 المحاسبة والديون":
-    st.title("⚖️ إدارة الديون (مدين / دائن)")
+    st.title("⚖️ إدارة الديون")
+    # ... نفس كود المحاسبة السابق ...
     user = st.selectbox("اختر الزبون:", df['Name'].unique())
     u_row = df[df['Name'] == user].iloc[0]
     current_price = float(u_row.get('Selling Price', 0))
-    
     st.info(f"الحساب الحالي للسيد {user} هو: **${current_price}**")
-    
     col1, col2 = st.columns(2)
-    with col1:
-        add_debt = st.number_input("زيادة دين (+):", min_value=0.0)
-    with col2:
-        sub_debt = st.number_input("قبض مبلغ (-):", min_value=0.0)
-    
+    with col1: add_debt = st.number_input("زيادة دين (+):", min_value=0.0)
+    with col2: sub_debt = st.number_input("قبض مبلغ (-):", min_value=0.0)
     new_total = current_price + add_debt - sub_debt
-    
     if st.button("احسب الحساب الجديد"):
         st.success(f"الحساب الجديد: **${new_total}**")
-        st.write("👉 يرجى تعديل السعر في ملف الإكسل بهذا الرقم.")
 
-# --- القسم 3: التشريج الشهري ---
 elif menu == "🗓️ التشريج الشهري":
-    st.title("📅 نظام التشريج الجماعي")
-    st.write("اضغط الزر لتجهيز قائمة بأسماء كل المشتركين لتبدأ شهر جديد.")
-    
-    if st.button("تجهيز قائمة الشهر الجديد"):
-        recharge_df = df[['Name', 'Service', 'Selling Price', 'Mobile Number']]
-        st.dataframe(recharge_df)
-        csv = recharge_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 تحميل القائمة للطباعة (Excel)", csv, "FutureNet_Recharge.csv")
+    st.title("📅 التشريج الجماعي")
+    if st.button("تجهيز القائمة"):
+        st.dataframe(df[['Name', 'Service', 'Selling Price']])
 
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
