@@ -3,32 +3,45 @@ import pandas as pd
 from urllib.parse import quote
 from datetime import datetime
 
-st.set_page_config(page_title="Future Net Pro", layout="wide")
+# 1. إعداد الصفحة
+st.set_page_config(page_title="Future Net Radar", layout="wide")
 
-# تصميم الألوان والخطوط
+# تصميم CSS لتحسين المظهر على الموبايل
 st.markdown("""
     <style>
-    .card { background-color: #1a1a1a; border-radius: 10px; padding: 12px; margin-bottom: 10px; border-left: 5px solid #007bff; }
-    .client-name { font-size: 1.1rem; font-weight: bold; color: #fff; margin-bottom: 5px; }
-    .info-line { font-size: 0.9rem; color: #bbb; margin: 3px 0; }
-    .wa-btn { display: block; width: 100%; padding: 10px; text-align: center; border-radius: 6px; text-decoration: none !important; font-weight: bold; font-size: 0.9rem; color: white !important; margin-top: 5px; }
-    .btn-1 { background-color: #f39c12; } .btn-2 { background-color: #d35400; } .btn-3 { background-color: #c0392b; }
+    .card { background-color: #1a1a1a; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 6px solid #007bff; }
+    .client-name { font-size: 1.2rem; font-weight: bold; color: #fff; margin-bottom: 5px; }
+    .status-online { color: #2ecc71; font-weight: bold; }
+    .status-expired { color: #e74c3c; font-weight: bold; }
+    .info-line { font-size: 0.95rem; color: #ccc; margin: 4px 0; }
+    .wa-btn { display: block; width: 100%; padding: 10px; text-align: center; border-radius: 8px; text-decoration: none !important; font-weight: bold; font-size: 1rem; color: white !important; margin-top: 8px; }
+    .btn-warn { background-color: #f39c12; } .btn-pay { background-color: #d35400; } .btn-stop { background-color: #c0392b; }
     </style>
 """, unsafe_allow_html=True)
 
 def load_data():
     try:
+        # قراءة الرابط من Secrets
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # قراءة الملف خام تماماً
+        # قراءة بدون عناوين (header=None) لأن ملفك يبدأ بالبيانات فوراً
         df = pd.read_csv(url, header=None)
         
-        # تصفية: حذف أي سطر فيه كلمات تعريفية أو فاضي
-        df = df[df[0].notna()]
-        df = df[~df[0].astype(str).str.contains('Action|Radius|Name|nan|Uptime|Total', case=False)]
+        # تسمية الأعمدة بناءً على الصورة المرسلة
+        # A=0, B=1, C=2, D=3, E=4, F=5
+        df = df.iloc[:, :7] # نأخذ أول 7 أعمدة
+        df.columns = ['Name', 'Status', 'Service', 'Expiry', 'Speed', 'Phone', 'Extra']
         
-        # تثبيت ترتيب الأعمدة: 0=A(الاسم), 1=B(الحالة), 2=C(الخدمة), 3=D(الوقت), 4=E(السعر), 5=F(التلفون)
+        # تنظيف البيانات
+        df = df.dropna(subset=['Name'])
+        
+        # تحويل التاريخ للترتيب (العمود D)
+        df['Expiry'] = pd.to_datetime(df['Expiry'], errors='coerce')
+        # ترتيب: المنتهي أولاً (الأقدم تاريخاً)
+        df = df.sort_values(by='Expiry', ascending=True)
+        
         return df.reset_index(drop=True)
-    except:
+    except Exception as e:
+        st.error(f"خطأ في تحميل البيانات: {e}")
         return pd.DataFrame()
 
 df = load_data()
@@ -36,49 +49,47 @@ df = load_data()
 st.title("📡 رادار فيوتشر نت")
 
 if df.empty:
-    st.error("⚠️ الملف فارغ أو الرابط غير صحيح. تأكد من وجود بيانات في العمود A.")
+    st.warning("⚠️ لم يتم العثور على بيانات. تأكد من رابط الجوجل شيت في الإعدادات.")
 else:
-    # ترتيب حسب تاريخ التشريج (D - Index 3)
-    try:
-        df[3] = pd.to_datetime(df[3], errors='coerce')
-        df = df.sort_values(by=3, ascending=True)
-    except:
-        pass
-
-    search = st.text_input("🔍 بحث عن مشترك:")
+    search = st.text_input("🔍 ابحث عن اسم الزبون:")
     if search:
-        df = df[df[0].astype(str).str.contains(search, case=False)]
+        df = df[df['Name'].astype(str).str.contains(search, case=False)]
 
     for idx, row in df.iterrows():
-        # توزيع البيانات حسب طلبك
-        name = str(row[0])    # A
-        status = str(row[1])  # B
-        service = str(row[2]) # C
-        date = str(row[3])    # D
-        price = str(row[4])   # E
-        phone = str(row[5]).replace('.0', '').strip() # F
-
+        name = str(row['Name'])
+        status = str(row['Status'])
+        service = str(row['Service'])
+        expiry = row['Expiry']
+        phone = str(row['Phone']).replace('.0', '').strip()
+        
+        # تنسيق التاريخ والحالة
+        expiry_str = expiry.strftime('%Y-%m-%d') if pd.notnull(expiry) else "N/A"
+        status_class = "status-online" if "Online" in status else "status-expired"
+        
         with st.container():
             st.markdown(f"""
                 <div class="card">
                     <div class="client-name">{name}</div>
-                    <div class="info-line">● <b>الحالة:</b> {status} | 🛠️ <b>الخدمة:</b> {service}</div>
-                    <div class="info-line">📅 <b>وقت التشريج:</b> {date}</div>
-                    <div class="info-line">💰 <b>السعر:</b> ${price}</div>
+                    <div class="info-line">● الحالة: <span class="{status_class}">{status}</span></div>
+                    <div class="info-line">🛠️ الخدمة: {service}</div>
+                    <div class="info-line">📅 تاريخ الانتهاء: {expiry_str}</div>
             """, unsafe_allow_html=True)
             
+            # أزرار الواتساب (تستخدم العمود F)
             if phone != 'nan' and len(phone) > 5:
-                # مفتاح لبنان
-                num = f"961{phone}" if not phone.startswith('961') else phone
-                m1 = quote(f"تنبيه: اشتراكك ({service}) قارب على الانتهاء.")
-                m2 = quote(f"يرجى دفع ${price} للتجديد. شكراً.")
-                m3 = quote(f"تحذير: سيتم قطع الخدمة لعدم الدفع.")
+                # إضافة مفتاح لبنان 961
+                clean_phone = phone.replace(' ', '').replace('+', '')
+                full_phone = f"961{clean_phone}" if not clean_phone.startswith('961') else clean_phone
                 
-                st.markdown(f'<a href="https://wa.me/{num}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{num}?text={m2}" class="wa-btn btn-2">💸 دفع</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{num}?text={m3}" class="wa-btn btn-3">🚫 إيقاف</a>', unsafe_allow_html=True)
+                msg1 = quote(f"عزيزي {name}، اشتراكك {service} ينتهي بتاريخ {expiry_str}. يرجى التجديد.")
+                msg2 = quote(f"تذكير بالدفع للمشترك {name}. القيمة المطلوبة لتجديد باقة {service}.")
+                
+                st.markdown(f'<a href="https://wa.me/{full_phone}?text={msg1}" class="wa-btn btn-warn">⚠️ تنبيه اقتراب انتهاء</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{full_phone}?text={msg2}" class="wa-btn btn-pay">💸 طلب دفع فوري</a>', unsafe_allow_html=True)
+            
             st.markdown('</div>', unsafe_allow_html=True)
 
+# زر التحديث في الجانب
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
     st.rerun()
