@@ -1,25 +1,36 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # 1. إعدادات الصفحة
-st.set_page_config(page_title="Future Net Ultra Manager", layout="wide")
+st.set_page_config(page_title="Future Net - Cards View", layout="wide")
+
+# تصميم CSS مخصص للبطاقات
+st.markdown("""
+    <style>
+    .user-card {
+        background-color: #1e1e1e;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-left: 5px solid #007bff;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    }
+    .status-online { color: #2ecc71; font-weight: bold; }
+    .status-offline { color: #e74c3c; font-weight: bold; }
+    .client-name { font-size: 1.2rem; font-weight: bold; color: #ffffff; }
+    .info-label { color: #888888; font-size: 0.9rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # قراءة من السطر الثاني كما اتفقنا
         df = pd.read_csv(url, header=1)
         df.columns = df.columns.astype(str).str.strip()
-        
-        # تنظيف البيانات المالية والتواريخ
         if 'Selling Price' in df.columns:
             df['Selling Price'] = pd.to_numeric(df['Selling Price'].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
-        
-        if 'Expiry Date' in df.columns:
-            df['Expiry Date'] = pd.to_datetime(df['Expiry Date'], errors='coerce').dt.date
-            
         return df
     except Exception as e:
         st.error(f"Error: {e}")
@@ -27,63 +38,55 @@ def load_data():
 
 df = load_data()
 
-# --- واجهة المستخدم ---
-st.title("⚡ Future Net Ultra Manager")
+st.title("🌐 Future Net - Clients Portal")
 
 if not df.empty:
-    # 2. الحسابات الذكية
-    today = datetime.now().date()
-    near_expiry_days = today + timedelta(days=2)
+    # --- قسم البحث ---
+    search = st.text_input("🔍 ابحث عن زبون بالاسم أو الرقم:")
+    if search:
+        df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
+
+    st.write(f"عرض {len(df)} مشترك")
+
+    # --- عرض الزبائن على شكل كولوم (Columns) وبطاقات ---
+    # منعمل 3 أعمدة بكل سطر
+    cols = st.columns(3)
     
-    online_df = df[df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)] if 'Status' in df.columns else pd.DataFrame()
-    near_expiry_df = df[(df['Expiry Date'] >= today) & (df['Expiry Date'] <= near_expiry_days)] if 'Expiry Date' in df.columns else pd.DataFrame()
-    
-    # 3. الداشبورد السريع
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("👥 المشتركين", len(df))
-    c2.metric("🟢 أونلاين", len(online_df))
-    c3.metric("⏳ قريباً ينتهي", len(near_expiry_df))
-    c4.metric("💰 المداخيل", f"${df['Selling Price'].sum():,.0f}" if 'Selling Price' in df.columns else "$0")
-
-    st.divider()
-
-    # 4. القائمة الجانبية
-    st.sidebar.header("🛠️ الإدارة")
-    menu = st.sidebar.selectbox("القسم الإداري:", 
-        ["📋 الإدارة العامة", "💸 قسم المديونين", "📩 مراسلة واتساب", "💾 Backup"])
-
-    if menu == "📋 الإدارة العامة":
-        st.subheader("📊 قائمة المشتركين")
-        search = st.text_input("🔎 بحث سريع:")
-        if search:
-            df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-        st.dataframe(df, use_container_width=True)
-
-    elif menu == "💸 قسم المديونين":
-        st.subheader("🔴 المبالغ المستحقة")
-        debt_df = df[df['Status'].astype(str).str.contains('Expired|Block', case=False, na=False)] if 'Status' in df.columns else pd.DataFrame()
-        if not debt_df.empty:
-            st.table(debt_df[['Name', 'Status', 'Selling Price', 'Mobile Number']])
-        else:
-            st.success("لا يوجد ديون حالياً! ✅")
-
-    elif menu == "📩 مراسلة واتساب":
-        st.subheader("💬 مراسلة سريعة")
-        user = st.selectbox("اختر الزبون:", df['Name'].tolist())
-        u_data = df[df['Name'] == user].iloc[0]
-        phone = str(u_data['Mobile Number']).replace('.0', '')
-        msg = f"مرحباً {user}، يرجى سداد مستحقات الاشتراك لتجنب الانقطاع."
-        wa_link = f"https://wa.me/{phone}?text={quote(msg)}"
-        st.markdown(f'[اضغط هنا للإرسال عبر واتساب 📲]({wa_link})')
-
-    elif menu == "💾 Backup":
-        st.subheader("📥 حفظ نسخة احتياطية")
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download CSV Backup", csv, "FutureNet_Backup.csv", "text/csv")
+    for index, row in df.iterrows():
+        # توزيع البطاقات على الأعمدة الثلاثة
+        with cols[index % 3]:
+            status = str(row['Status']).lower() if 'Status' in df.columns else ""
+            status_class = "status-online" if 'online' in status or 'active' in status else "status-offline"
+            status_text = "🟢 Online" if 'online' in status or 'active' in status else "🔴 Offline"
+            
+            phone = str(row['Mobile Number']).replace('.0', '') if 'Mobile Number' in df.columns else ""
+            
+            # محتوى البطاقة
+            st.markdown(f"""
+                <div class="user-card">
+                    <div class="client-name">{row['Name'] if 'Name' in df.columns else 'Unknown'}</div>
+                    <div class="{status_class}">{status_text}</div>
+                    <hr style="margin: 10px 0; border-color: #333;">
+                    <div><span class="info-label">Service:</span> {row['Service'] if 'Service' in df.columns else 'N/A'}</div>
+                    <div><span class="info-label">Expiry:</span> {row['Expiry Date'] if 'Expiry Date' in df.columns else 'N/A'}</div>
+                    <div><span class="info-label">Price:</span> ${row['Selling Price'] if 'Selling Price' in df.columns else '0'}</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # أزرار التفاعل تحت كل بطاقة
+            c1, c2 = st.columns(2)
+            with c1:
+                if phone:
+                    msg = quote(f"Hello {row['Name']}, your subscription is {row['Status']}. Please contact us for any help.")
+                    st.markdown(f"[📲 WhatsApp](https://wa.me/{phone}?text={msg})")
+            with c2:
+                if st.button(f"Details", key=f"btn_{index}"):
+                    st.info(f"Full Data for {row['Name']}: \n\n {row.to_dict()}")
 
 else:
-    st.warning("⚠️ لم يتم العثور على بيانات.")
+    st.warning("No data found in the spreadsheet.")
 
-if st.sidebar.button("🔄 Refresh"):
+# زر التحديث
+if st.sidebar.button("🔄 Update Data"):
     st.cache_data.clear()
     st.rerun()
