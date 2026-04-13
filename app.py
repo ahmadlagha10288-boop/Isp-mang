@@ -4,53 +4,49 @@ from urllib.parse import quote
 from datetime import datetime
 
 # 1. إعدادات الصفحة
-st.set_page_config(page_title="Future Net Ultra 2026", layout="wide")
+st.set_page_config(page_title="Future Net Ultra Pro", layout="wide")
 
-# تصميم CSS محسن للرؤية الواضحة
+# تصميم CSS: تصغير الخطوط وتحسين الواجهة
 st.markdown("""
     <style>
     .card { 
         background-color: #262730; 
-        border-radius: 15px; 
-        padding: 20px; 
-        margin-bottom: 15px; 
-        border-left: 8px solid #007bff;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        border-radius: 12px; 
+        padding: 12px; 
+        margin-bottom: 10px; 
+        border-left: 5px solid #007bff;
     }
     .client-name { 
-        font-size: 1.5rem; 
+        font-size: 1.1rem; /* تصغير الخط */
         font-weight: bold; 
         color: #ffffff; 
-        margin-bottom: 10px;
     }
     .days-tag { 
-        font-size: 1.2rem; 
+        font-size: 0.9rem; 
         font-weight: bold; 
-        padding: 5px 10px;
-        border-radius: 5px;
-        display: inline-block;
-        margin-bottom: 15px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        margin-bottom: 8px;
     }
     .debt-box { 
-        background-color: #3d3f4b; /* رمادي أفتح ليتضح الخط */
-        padding: 15px; 
-        border-radius: 10px; 
-        margin-top: 10px; 
-        color: #ffffff !important; /* خط أبيض ناصع */
-        font-size: 1.1rem;
-        border: 1px solid #555;
+        background-color: #343541;
+        padding: 10px; 
+        border-radius: 8px; 
+        color: #e0e0e0; 
+        font-size: 0.9rem; /* تصغير خط المعلومات */
+        line-height: 1.4;
     }
-    .wa-container { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
     .wa-btn { 
         display: block; 
         width: 100%; 
-        padding: 15px; 
+        padding: 8px; 
         text-align: center; 
-        border-radius: 10px; 
+        border-radius: 6px; 
         text-decoration: none !important; 
         font-weight: bold; 
-        font-size: 1rem;
+        font-size: 0.85rem;
         color: white !important;
+        margin-top: 5px;
     }
     .btn-1 { background-color: #f39c12; } 
     .btn-2 { background-color: #d35400; } 
@@ -78,68 +74,89 @@ def load_data():
 
 df = load_data()
 
-# --- القائمة الجانبية ---
-st.sidebar.title("⭐ Future Net Panel")
-menu = st.sidebar.selectbox("اختر المهمة:", ["📱 الرادار والواتساب", "💵 المحاسبة والديون", "🗓️ التشريج الشهري"])
+# --- القائمة الجانبية (Sidebar) ---
+st.sidebar.title("⭐ Future Net Admin")
+menu = st.sidebar.selectbox("القائمة الرئيسية:", ["📱 الرادار والواتساب", "💵 المحاسبة والديون", "📊 التقارير والنسخ الاحتياطي"])
 
 if menu == "📱 الرادار والواتساب":
     st.title("📡 رادار المشتركين")
-    search = st.text_input("🔍 ابحث عن اسم الزبون:")
+    
+    # فلتر سريع (نصيحة: فرز المنتهيين)
+    show_expired_only = st.sidebar.checkbox("عرض المنتهيين فقط 🔴")
+    
+    search = st.text_input("🔍 ابحث عن اسم:")
+    
+    today = datetime.now()
+    if show_expired_only:
+        df = df[df['Expiry Date'] < today]
     if search:
         df = df[df['Name'].str.contains(search, case=False, na=False)]
 
-    today = datetime.now()
+    cols = st.columns(2)
     for idx, row in df.iterrows():
-        expiry = row.get('Expiry Date')
-        days_left = (expiry - today).days if pd.notnull(expiry) else 0
-        st_color = "#2ecc71" if days_left > 0 else "#e74c3c"
-        bg_tag = "rgba(46, 204, 113, 0.2)" if days_left > 0 else "rgba(231, 76, 60, 0.2)"
-        
-        # عرض البطاقة مع تحسين الألوان
-        st.markdown(f"""
-            <div class="card">
-                <div class="client-name">{row['Name']}</div>
-                <div class="days-tag" style="color:{st_color}; background:{bg_tag};">
-                    ● باقي {days_left} يوم
-                </div>
-                <div class="debt-box">
-                    <b style="color:#00d4ff;">📞 الهاتف:</b> {row.get('Mobile Number', 'N/A')}<br>
-                    <b style="color:#ffcc00;">💰 الدين المستحق:</b> ${row.get('Selling Price', '0')}
-                </div>
-                <div class="wa-container">
-        """, unsafe_allow_html=True)
-
-        phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
-        if phone and phone != 'nan':
-            m1 = quote(f"عزيزي {row['Name']}، تنبيه من فيوتشر نت: اشتراكك ينتهي خلال 3 أيام.")
-            m2 = quote(f"عزيزي {row['Name']}، نرجو تسديد مبلغ ${row.get('Selling Price')} لتجديد اشتراكك اليوم.")
-            m3 = quote(f"تنبيه أخير {row['Name']}، يرجى الدفع لتجنب إيقاف الخدمة خلال ساعات.")
+        with cols[idx % 2]:
+            expiry = row.get('Expiry Date')
+            days_left = (expiry - today).days if pd.notnull(expiry) else 0
+            st_color = "#2ecc71" if days_left > 0 else "#ff4b4b"
+            bg_tag = "rgba(46, 204, 113, 0.1)" if days_left > 0 else "rgba(255, 75, 75, 0.1)"
             
-            st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
-            st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع فوري</a>', unsafe_allow_html=True)
-            st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير نهائي وإيقاف</a>', unsafe_allow_html=True)
-        
-        st.markdown('</div></div>', unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class="card">
+                    <div class="client-name">{row['Name']}</div>
+                    <div class="days-tag" style="color:{st_color}; background:{bg_tag};">
+                        ● باقي {days_left} يوم
+                    </div>
+                    <div class="debt-box">
+                        <b>📞 الهاتف:</b> {row.get('Mobile Number', 'N/A')}<br>
+                        <b>💰 الدين:</b> ${row.get('Selling Price', '0')} | 🛠️ {row.get('Service', 'N/A')}
+                    </div>
+            """, unsafe_allow_html=True)
 
-# بقية الأقسام (المحاسبة والتشريج) تبقى كما هي في الكود السابق...
+            phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
+            if phone and phone != 'nan':
+                m1 = quote(f"تنبيه: اشتراكك ينتهي خلال 3 أيام.")
+                m2 = quote(f"نرجو تسديد مبلغ ${row.get('Selling Price')} لتجديد الاشتراك.")
+                m3 = quote(f"تنبيه أخير: سيتم إيقاف الخدمة لعدم الدفع.")
+                
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير إيقاف</a>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
 elif menu == "💵 المحاسبة والديون":
-    st.title("⚖️ إدارة الديون")
-    # ... نفس كود المحاسبة السابق ...
+    st.title("⚖️ إدارة الحسابات (زيادة ونقص)")
     user = st.selectbox("اختر الزبون:", df['Name'].unique())
     u_row = df[df['Name'] == user].iloc[0]
-    current_price = float(u_row.get('Selling Price', 0))
-    st.info(f"الحساب الحالي للسيد {user} هو: **${current_price}**")
+    curr_debt = float(u_row.get('Selling Price', 0))
+    
+    st.warning(f"الحساب الحالي لـ {user}: **${curr_debt}**")
+    
     col1, col2 = st.columns(2)
-    with col1: add_debt = st.number_input("زيادة دين (+):", min_value=0.0)
-    with col2: sub_debt = st.number_input("قبض مبلغ (-):", min_value=0.0)
-    new_total = current_price + add_debt - sub_debt
-    if st.button("احسب الحساب الجديد"):
-        st.success(f"الحساب الجديد: **${new_total}**")
+    with col1:
+        plus = st.number_input("إضافة دين (+) $", min_value=0.0, step=1.0)
+    with col2:
+        minus = st.number_input("قبض مبلغ (-) $", min_value=0.0, step=1.0)
+    
+    final = curr_debt + plus - minus
+    st.subheader(f"الحساب الجديد: :blue[${final}]")
+    st.info("قم بتعديل الرقم في الإكسل ليتم الحفظ بشكل دائم.")
 
-elif menu == "🗓️ التشريج الشهري":
-    st.title("📅 التشريج الجماعي")
-    if st.button("تجهيز القائمة"):
-        st.dataframe(df[['Name', 'Service', 'Selling Price']])
+elif menu == "📊 التقارير والنسخ الاحتياطي":
+    st.title("💾 الإدارة والنسخ الاحتياطي")
+    
+    # إحصائيات سريعة (نصيحة)
+    total_money = df['Selling Price'].astype(float).sum()
+    st.metric("إجمالي المبالغ المطلوبة في السوق", f"${total_money:,.2f}")
+    
+    st.divider()
+    st.subheader("📥 تحميل نسخة احتياطية")
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Download CSV Backup (Excel)",
+        data=csv,
+        file_name=f"FutureNet_Backup_{datetime.now().strftime('%Y-%m-%d')}.csv",
+        mime="text/csv",
+    )
 
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
