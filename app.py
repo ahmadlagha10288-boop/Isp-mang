@@ -1,130 +1,161 @@
 import streamlit as st
 import pandas as pd
-from urllib.parse import quote
-from datetime import datetime
+import sqlite3
+from datetime import datetime, timedelta
+import urllib.parse
+import os
 
-# 1. إعدادات الصفحة
-st.set_page_config(page_title="Future Net Admin Pro", layout="wide")
+# --- إعداد الصفحة ---
+st.set_page_config(page_title="ISP Pro - Final Edition", layout="wide")
 
-# تصميم CSS: تحسين الألوان وتصغير الخطوط للرؤية السريعة
-st.markdown("""
-    <style>
-    .card { 
-        background-color: #262730; 
-        border-radius: 12px; 
-        padding: 12px; 
-        margin-bottom: 10px; 
-        border-left: 5px solid #007bff;
-    }
-    .client-name { font-size: 1.1rem; font-weight: bold; color: #ffffff; }
-    .days-tag { font-size: 0.85rem; font-weight: bold; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; display: inline-block; }
-    .debt-box { background-color: #343541; padding: 10px; border-radius: 8px; color: #e0e0e0; font-size: 0.9rem; line-height: 1.4; }
-    .wa-btn { 
-        display: block; width: 100%; padding: 8px; text-align: center; border-radius: 6px; 
-        text-decoration: none !important; font-weight: bold; font-size: 0.8rem; color: white !important; margin-top: 4px;
-    }
-    .btn-1 { background-color: #f39c12; } 
-    .btn-2 { background-color: #d35400; } 
-    .btn-3 { background-color: #c0392b; } 
-    </style>
-""", unsafe_allow_html=True)
+# --- قاعدة البيانات (حفظ دائم) ---
+DB_FILE = 'isp_debts.db'
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS billing 
+             (username TEXT PRIMARY KEY, debt REAL DEFAULT 0, paid_amount REAL DEFAULT 0, 
+              service TEXT, expiry_date TEXT, phone TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS logs 
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, time TEXT)''')
+conn.commit()
 
-def load_data():
-    try:
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df_raw = pd.read_csv(url, header=None)
-        h_idx = 0
-        for i, row in df_raw.iterrows():
-            if "Name" in row.values:
-                h_idx = i
-                break
-        df = pd.read_csv(url, header=h_idx)
-        df.columns = df.columns.astype(str).str.strip()
-        df = df[df['Name'].notna()].reset_index(drop=True)
+# --- دالات المساعدة ---
+def add_log(msg):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    c.execute("INSERT INTO logs (action, time) VALUES (?, ?)", (msg, now))
+    conn.commit()
+
+def send_whatsapp(phone, message):
+    phone = "".join(filter(str.isdigit, str(phone))) if phone else ""
+    if not phone.startswith('961') and phone != "": phone = '961' + phone
+    return f"https://wa.me/{phone}?text={urllib.parse.quote(message)}"
+
+PRICES = {"bronze": 20, "silver": 25, "gold": 30, "platinum": 40, "diamond": 50, "platinum-ise": 60}
+def get_price(service):
+    s = str(service).lower() if service else ""
+    for k, v in PRICES.items():
+        if k in s: return v
+    return 0
+
+# --- واجهة البرنامج ---
+st.title("📡 نظام الإدارة المتكامل (الحفظ الدائم)")
+
+# 1. رفع الملف للتحديث (اختياري)
+file = st.file_uploader("ارفع ملف Radius 2.csv لتحديث الأسماء والتواريخ")
+
+if file:
+    df_upload = pd.read_csv(file)
+    df_upload.columns = [col.strip() for col in df_upload.columns]
+    date_col = 'Expiry Date'
+    phone_col = 'Mobile Number' if 'Mobile Number' in df_upload.columns else 'Phone Number'
+    
+    for _, r in df_upload.iterrows():
+        u = str(r['Username'])
+        s = str(r['Service'])
+        e = str(r[date_col])
+        p = str(r[phone_col]) if phone_col in df_upload.columns else ""
         
-        if 'Expiry Date' in df.columns:
-            # تحويل التاريخ وترتيب الداتا (من الأقدم للأحدث)
-            df['Expiry Date'] = pd.to_datetime(df['Expiry Date'], errors='coerce')
-            df = df.sort_values(by='Expiry Date', ascending=True) # الترتيب المطلوب
-            
-        return df
-    except:
-        return pd.DataFrame()
+        # تحديث البيانات (ON CONFLICT لإبقاء الدين القديم كما هو)
+        c.execute('''INSERT INTO billing (username, service, expiry_date, phone) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(username) DO UPDATE SET service=excluded.service, expiry_date=excluded.expiry_date, phone=excluded.phone''', (u, s, e, p))
+    conn.commit()
+    st.success("✅ تم تحديث قاعدة البيانات من الملف!")
 
-df = load_data()
+# 2. جلب البيانات المخزنة
+db_df = pd.read_sql_query("SELECT * FROM billing", conn)
 
-# --- القائمة الجانبية ---
-st.sidebar.title("⭐ Future Net Admin")
-menu = st.sidebar.selectbox("القائمة الرئيسية:", ["📱 الرادار والواتساب", "💵 المحاسبة والديون", "📊 التقارير والنسخ الاحتياطي"])
+if not db_df.empty:
+    db_df['expiry_date'] = pd.to_datetime(db_df['expiry_date'], errors='coerce')
+    now = datetime.now()
 
-if menu == "📱 الرادار والواتساب":
-    st.title("📡 رادار المشتركين (مرتب حسب الانتهاء)")
+    # --- القائمة الجانبية (Sidebar) ---
+    st.sidebar.header("💾 الأمان والعمليات")
     
-    search = st.text_input("🔍 ابحث عن اسم أو رقم تلفون:")
-    today = datetime.now()
-
-    if search:
-        # البحث في الاسم أو رقم التلفون
-        df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-
-    cols = st.columns(2)
-    for idx, row in df.iterrows():
-        with cols[idx % 2]:
-            expiry = row.get('Expiry Date')
-            days_left = (expiry - today).days if pd.notnull(expiry) else 0
-            
-            # تحديد اللون حسب الحالة
-            st_color = "#ff4b4b" if days_left <= 0 else ("#f39c12" if days_left <= 3 else "#2ecc71")
-            bg_tag = "rgba(255, 75, 75, 0.1)" if days_left <= 0 else "rgba(46, 204, 113, 0.1)"
-            
-            st.markdown(f"""
-                <div class="card">
-                    <div class="client-name">{row['Name']}</div>
-                    <div class="days-tag" style="color:{st_color}; background:{bg_tag};">
-                        ● {"منتهي الصلاحية" if days_left < 0 else f"باقي {days_left} يوم"}
-                    </div>
-                    <div class="debt-box">
-                        <b>📞 الهاتف:</b> {str(row.get('Mobile Number', 'N/A')).replace('.0', '')}<br>
-                        <b>💰 الدين:</b> ${row.get('Selling Price', '0')} | 🛠️ {row.get('Service', 'N/A')}
-                    </div>
-            """, unsafe_allow_html=True)
-
-            phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
-            if phone and phone != 'nan':
-                m1 = quote(f"تنبيه من Future Net: اشتراكك ينتهي خلال 3 أيام.")
-                m2 = quote(f"يرجى تسديد مبلغ ${row.get('Selling Price')} لتجديد الاشتراك.")
-                m3 = quote(f"تنبيه أخير: سيتم إيقاف الخدمة اليوم لعدم الدفع.")
-                
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير إيقاف</a>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-elif menu == "💵 المحاسبة والديون":
-    st.title("⚖️ إدارة الحسابات")
-    user = st.selectbox("اختر الزبون:", df['Name'].unique())
-    u_row = df[df['Name'] == user].iloc[0]
-    curr_debt = float(pd.to_numeric(u_row.get('Selling Price', 0), errors='coerce') or 0)
+    # زر البيك اب (Backup)
+    with open(DB_FILE, "rb") as fp:
+        st.sidebar.download_button(
+            label="📥 تحميل نسخة احتياطية (Backup)",
+            data=fp,
+            file_name=f"ISP_Backup_{datetime.now().strftime('%Y-%m-%d')}.db",
+            mime="application/x-sqlite3"
+        )
     
-    st.info(f"الحساب الحالي لـ {user}: **${curr_debt}**")
+    st.sidebar.divider()
     
-    col1, col2 = st.columns(2)
-    with col1: plus = st.number_input("إضافة دين (+) $", min_value=0.0)
-    with col2: minus = st.number_input("قبض مبلغ (-) $", min_value=0.0)
-    
-    final = curr_debt + plus - minus
-    st.subheader(f"الحساب الجديد: :blue[${final}]")
-    st.write("👉 عدّل الرقم في الإكسل ليتم الحفظ.")
+    if st.sidebar.button("🚨 زيادة شهر للكل"):
+        for _, r in db_df.iterrows():
+            price = get_price(r['service'])
+            c.execute("UPDATE billing SET debt = debt + ? WHERE username = ?", (price, r['username']))
+        conn.commit()
+        add_log("زيادة شهر لجميع المشتركين")
+        st.rerun()
 
-elif menu == "📊 التقارير والنسخ الاحتياطي":
-    st.title("💾 الإدارة والنسخ")
-    total_money = pd.to_numeric(df['Selling Price'], errors='coerce').sum()
-    st.metric("إجمالي المبالغ المطلوبة بالسوق", f"${total_money:,.2f}")
-    
+    st.sidebar.divider()
+    st.sidebar.subheader("📢 رسائل جماعية")
+    c.execute("SELECT username, debt FROM billing WHERE debt > 0")
+    debtors = c.fetchall()
+    if st.sidebar.button("📝 نص الديون للجروب"):
+        msg = "💸 قائمة الذمم المالية:\n" + "\n".join([f"- {d[0]}: ${d[1]}" for d in debtors])
+        st.sidebar.text_area("انسخ النص:", msg, height=150)
+
+    # --- الإحصائيات ---
+    st.subheader("📊 إحصائيات السوق")
+    c1, c2, c3 = st.columns(3)
+    c.execute("SELECT SUM(debt) FROM billing")
+    total_debt = c.fetchone()[0] or 0
+    c1.metric("💰 إجمالي الديون", f"${total_debt}")
+    c2.metric("🔴 منتهي", len(db_df[db_df['expiry_date'] < now]))
+    c3.metric("🟢 شغال", len(db_df[db_df['expiry_date'] >= now]))
+
+    # --- الجدول ---
+    rows = []
+    for _, r in db_df.iterrows():
+        u, debt, exp = r['username'], r['debt'], r['expiry_date']
+        status = "🔴" if pd.notna(exp) and exp < now else "🟢"
+        rows.append({"ح": status, "المشترك": u, "تاريخ": exp.strftime('%d/%m') if pd.notna(exp) else "??", "الدين": f"${debt}"})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # --- إدارة المشترك ---
     st.divider()
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 تحميل نسخة احتياطية (Backup)", csv, f"FutureNet_{datetime.now().date()}.csv", "text/csv")
+    target = st.selectbox("إدارة مشترك محدد:", [""] + [r['المشترك'] for r in rows])
 
-if st.sidebar.button("🔄 تحديث البيانات"):
-    st.cache_data.clear()
-    st.rerun()
+    if target:
+        c.execute("SELECT * FROM billing WHERE username=?", (target,))
+        u_data = c.fetchone()
+        curr_debt, service, phone = u_data[1], u_data[3], u_data[5]
+        price = get_price(service)
+
+        st.info(f"الزبون: **{target}** | الدين الحالي: **${curr_debt}**")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button(f"✅ قبض ${price}", type="primary"):
+                c.execute("UPDATE billing SET debt = MAX(0, debt - ?) WHERE username = ?", (price, target))
+                add_log(f"قبض {price} من {target}")
+                conn.commit()
+                st.rerun()
+        with col2:
+            with st.popover("➕ إضافة دين"):
+                val = st.number_input("المبلغ:", step=1.0)
+                if st.button("تأكيد"):
+                    c.execute("UPDATE billing SET debt = debt + ? WHERE username = ?", (val, target))
+                    conn.commit()
+                    st.rerun()
+        with col3:
+            if st.button("🗑️ تصفير"):
+                c.execute("UPDATE billing SET debt = 0 WHERE username = ?", (target,))
+                conn.commit()
+                st.rerun()
+
+        st.write("📲 واتساب سريع:")
+        w1, w2 = st.columns(2)
+        w1.link_button("💸 تذكير بالدين", send_whatsapp(phone, f"تذكير: المبلغ المطلوب هو ${curr_debt}"))
+        w2.link_button("✅ تم التجديد", send_whatsapp(phone, f"تم تجديد اشتراكك. الحساب: ${curr_debt}"))
+
+    # --- السجل ---
+    st.divider()
+    st.subheader("📜 آخر العمليات")
+    st.table(pd.read_sql_query("SELECT action as 'العملية', time as 'الوقت' FROM logs ORDER BY id DESC LIMIT 5", conn))
+
+else:
+    st.warning("البرنامج فارغ. يرجى رفع ملف CSV لأول مرة لتخزين البيانات.")
