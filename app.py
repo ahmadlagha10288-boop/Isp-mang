@@ -1,130 +1,141 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. إعدادات الصفحة
 st.set_page_config(page_title="Future Net Admin Pro", layout="wide")
 
-# تصميم CSS: تحسين الألوان وتصغير الخطوط للرؤية السريعة
+# تصميم CSS: تصغير الخطوط، تحسين المربعات، وألوان واضحة للحالات
 st.markdown("""
     <style>
     .card { 
-        background-color: #262730; 
-        border-radius: 12px; 
-        padding: 12px; 
-        margin-bottom: 10px; 
+        background-color: #1e1e1e; 
+        border-radius: 10px; 
+        padding: 10px; 
+        margin-bottom: 8px; 
         border-left: 5px solid #007bff;
     }
-    .client-name { font-size: 1.1rem; font-weight: bold; color: #ffffff; }
-    .days-tag { font-size: 0.85rem; font-weight: bold; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; display: inline-block; }
-    .debt-box { background-color: #343541; padding: 10px; border-radius: 8px; color: #e0e0e0; font-size: 0.9rem; line-height: 1.4; }
+    .client-name { font-size: 0.95rem; font-weight: bold; color: #ffffff; margin-bottom: 2px; }
+    .status-tag { font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 6px; }
+    .info-box { background-color: #2b2b2b; padding: 6px; border-radius: 6px; color: #d0d0d0; font-size: 0.8rem; line-height: 1.3; }
     .wa-btn { 
-        display: block; width: 100%; padding: 8px; text-align: center; border-radius: 6px; 
-        text-decoration: none !important; font-weight: bold; font-size: 0.8rem; color: white !important; margin-top: 4px;
+        display: block; width: 100%; padding: 6px; text-align: center; border-radius: 5px; 
+        text-decoration: none !important; font-weight: bold; font-size: 0.75rem; color: white !important; margin-top: 4px;
     }
-    .btn-1 { background-color: #f39c12; } 
-    .btn-2 { background-color: #d35400; } 
-    .btn-3 { background-color: #c0392b; } 
+    .btn-alert { background-color: #f39c12; } 
+    .btn-pay { background-color: #d35400; } 
+    .btn-stop { background-color: #c0392b; }
     </style>
 """, unsafe_allow_html=True)
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df_raw = pd.read_csv(url, header=None)
-        h_idx = 0
-        for i, row in df_raw.iterrows():
-            if "Name" in row.values:
-                h_idx = i
-                break
-        df = pd.read_csv(url, header=h_idx)
-        df.columns = df.columns.astype(str).str.strip()
+        # قراءة البيانات مع تحديد أسماء الأعمدة يدوياً بناءً على طلبك
+        df = pd.read_csv(url)
+        
+        # إعادة تسمية الأعمدة بناءً على الترتيب (A, B, C, D...)
+        new_cols = {
+            df.columns[0]: 'Name',      # كولون A
+            df.columns[1]: 'Status',    # كولون B
+            df.columns[2]: 'Service',   # كولون C
+            df.columns[3]: 'Timestamp'  # كولون D (وقت التشريج)
+        }
+        df.rename(columns=new_cols, inplace=True)
+        
+        # تنظيف البيانات
         df = df[df['Name'].notna()].reset_index(drop=True)
         
-        if 'Expiry Date' in df.columns:
-            # تحويل التاريخ وترتيب الداتا (من الأقدم للأحدث)
-            df['Expiry Date'] = pd.to_datetime(df['Expiry Date'], errors='coerce')
-            df = df.sort_values(by='Expiry Date', ascending=True) # الترتيب المطلوب
+        # معالجة التاريخ (كولون D) لترتيب المشتركين
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            # ترتيب من الأقدم للأحدث (اللي شحن من زمان بيطلع أول شي لأنه قرب يخلص)
+            df = df.sort_values(by='Timestamp', ascending=True)
             
         return df
-    except:
+    except Exception as e:
+        st.error(f"خطأ في تحميل البيانات: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
 # --- القائمة الجانبية ---
-st.sidebar.title("⭐ Future Net Admin")
-menu = st.sidebar.selectbox("القائمة الرئيسية:", ["📱 الرادار والواتساب", "💵 المحاسبة والديون", "📊 التقارير والنسخ الاحتياطي"])
+st.sidebar.title("⭐ Future Net")
+menu = st.sidebar.selectbox("القائمة:", ["📱 الرادار", "💵 المحاسبة", "💾 النسخ والتقارير"])
 
-if menu == "📱 الرادار والواتساب":
-    st.title("📡 رادار المشتركين (مرتب حسب الانتهاء)")
+if menu == "📱 الرادار":
+    st.title("📡 رادار المشتركين")
+    search = st.text_input("🔍 بحث عن اسم، خدمة أو حالة:")
     
-    search = st.text_input("🔍 ابحث عن اسم أو رقم تلفون:")
-    today = datetime.now()
-
     if search:
-        # البحث في الاسم أو رقم التلفون
         df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
 
     cols = st.columns(2)
     for idx, row in df.iterrows():
         with cols[idx % 2]:
-            expiry = row.get('Expiry Date')
-            days_left = (expiry - today).days if pd.notnull(expiry) else 0
+            status = str(row.get('Status', 'Offline')).strip().lower()
             
-            # تحديد اللون حسب الحالة
-            st_color = "#ff4b4b" if days_left <= 0 else ("#f39c12" if days_left <= 3 else "#2ecc71")
-            bg_tag = "rgba(255, 75, 75, 0.1)" if days_left <= 0 else "rgba(46, 204, 113, 0.1)"
+            # تحديد لون الحالة بناءً على كولون B
+            color_map = {
+                'online': '#2ecc71',
+                'active': '#2ecc71',
+                'blocked': '#95a5a6',
+                'expired': '#ff4b4b',
+                'offline': '#e67e22'
+            }
+            current_color = color_map.get(status, '#ffffff')
             
             st.markdown(f"""
                 <div class="card">
                     <div class="client-name">{row['Name']}</div>
-                    <div class="days-tag" style="color:{st_color}; background:{bg_tag};">
-                        ● {"منتهي الصلاحية" if days_left < 0 else f"باقي {days_left} يوم"}
+                    <div class="status-tag" style="color:{current_color}; border: 1px solid {current_color};">
+                        ● {status.upper()}
                     </div>
-                    <div class="debt-box">
-                        <b>📞 الهاتف:</b> {str(row.get('Mobile Number', 'N/A')).replace('.0', '')}<br>
-                        <b>💰 الدين:</b> ${row.get('Selling Price', '0')} | 🛠️ {row.get('Service', 'N/A')}
+                    <div class="info-box">
+                        <b>🛠 الخدمة:</b> {row.get('Service', 'N/A')}<br>
+                        <b>📅 آخر تشريج:</b> {row.get('Timestamp', 'N/A')}<br>
+                        <b>💰 السعر:</b> ${row.get('Selling Price', '0')}
                     </div>
             """, unsafe_allow_html=True)
 
+            # أزرار الواتساب المختصرة
             phone = str(row.get('Mobile Number', '')).replace('.0', '').strip()
             if phone and phone != 'nan':
-                m1 = quote(f"تنبيه من Future Net: اشتراكك ينتهي خلال 3 أيام.")
-                m2 = quote(f"يرجى تسديد مبلغ ${row.get('Selling Price')} لتجديد الاشتراك.")
-                m3 = quote(f"تنبيه أخير: سيتم إيقاف الخدمة اليوم لعدم الدفع.")
+                m1 = quote(f"تنبيه من فيوتشر نت: اشتراكك ({row.get('Service')}) قارب على الانتهاء.")
+                m2 = quote(f"يرجى تسديد الحساب لتجديد الخدمة. شكراً.")
+                m3 = quote(f"سيتم إيقاف الخدمة حالاً لعدم تسديد المستحقات.")
                 
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-1">⚠️ تنبيه 3 أيام</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-2">💸 طلب دفع</a>', unsafe_allow_html=True)
-                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-3">🚫 تحذير إيقاف</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m1}" class="wa-btn btn-alert">⚠️ تنبيه</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m2}" class="wa-btn btn-pay">💸 طلب دفع</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="https://wa.me/{phone}?text={m3}" class="wa-btn btn-stop">🚫 إيقاف</a>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-elif menu == "💵 المحاسبة والديون":
-    st.title("⚖️ إدارة الحسابات")
+elif menu == "💵 المحاسبة":
+    st.title("⚖️ إدارة الديون")
     user = st.selectbox("اختر الزبون:", df['Name'].unique())
     u_row = df[df['Name'] == user].iloc[0]
+    
+    # استخراج السعر الحالي من الكولون المناسب
     curr_debt = float(pd.to_numeric(u_row.get('Selling Price', 0), errors='coerce') or 0)
     
-    st.info(f"الحساب الحالي لـ {user}: **${curr_debt}**")
+    st.info(f"الزبون: **{user}** | الحساب الحالي: **${curr_debt}**")
     
-    col1, col2 = st.columns(2)
-    with col1: plus = st.number_input("إضافة دين (+) $", min_value=0.0)
-    with col2: minus = st.number_input("قبض مبلغ (-) $", min_value=0.0)
+    c1, c2 = st.columns(2)
+    with c1: plus = st.number_input("زيادة (+)", min_value=0.0)
+    with c2: minus = st.number_input("نقص (-)", min_value=0.0)
     
-    final = curr_debt + plus - minus
-    st.subheader(f"الحساب الجديد: :blue[${final}]")
-    st.write("👉 عدّل الرقم في الإكسل ليتم الحفظ.")
+    st.subheader(f"الحساب الجديد: :green[${curr_debt + plus - minus}]")
+    st.caption("ملاحظة: عدّل الرقم النهائي في ملف الإكسل.")
 
-elif menu == "📊 التقارير والنسخ الاحتياطي":
-    st.title("💾 الإدارة والنسخ")
-    total_money = pd.to_numeric(df['Selling Price'], errors='coerce').sum()
-    st.metric("إجمالي المبالغ المطلوبة بالسوق", f"${total_money:,.2f}")
+elif menu == "💾 النسخ والتقارير":
+    st.title("💾 النسخ الاحتياطي")
+    total = pd.to_numeric(df['Selling Price'], errors='coerce').sum()
+    st.metric("إجمالي المبالغ المطلوبة", f"${total:,.2f}")
     
-    st.divider()
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 تحميل نسخة احتياطية (Backup)", csv, f"FutureNet_{datetime.now().date()}.csv", "text/csv")
+    st.download_button("📥 تحميل نسخة إكسل (Backup)", csv, f"FutureNet_{datetime.now().date()}.csv")
 
-if st.sidebar.button("🔄 تحديث البيانات"):
+if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
