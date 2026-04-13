@@ -1,18 +1,17 @@
 import streamlit as st
 import pandas as pd
 
-# 1. إعدادات الصفحة
 st.set_page_config(page_title="Future Net - Clean View", layout="wide")
 
 def load_data():
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         df = pd.read_csv(url)
-        # تنظيف العناوين من الفراغات
+        # تنظيف العناوين من أي فراغات خفية
         df.columns = df.columns.astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"خطأ في تحميل البيانات: {e}")
+        st.error(f"خطأ: {e}")
         return pd.DataFrame()
 
 df = load_data()
@@ -20,63 +19,55 @@ df = load_data()
 st.title("🌐 Future Net Manager")
 
 if not df.empty:
-    # --- تحديد الأعمدة المطلوبة فقط واستبعاد الباقي ---
-    # هول الأسماء لازم يطابقوا اللي بالأكسل عندك
-    requested_cols = {
-        'Name': 'الاسم',
-        'Service': 'نوع الخدمة',
-        'Expiry Date': 'التاريخ',
-        'Mobile Number': 'رقم الهاتف',
-        'Status': 'الحالة'
+    # --- دالة ذكية لإيجاد الأعمدة حتى لو في اختلاف بسيط بالاسم ---
+    def find_column(options):
+        for col in df.columns:
+            if any(opt.lower() in col.lower() for opt in options):
+                return col
+        return None
+
+    # منحدد الأعمدة بناءً على اللي طلبته
+    target_cols = {
+        'الاسم': find_column(['Name', 'الاسم', 'Customer']),
+        'نوع الخدمة': find_column(['Service', 'الخدمة', 'Plan']),
+        'التاريخ': find_column(['Expiry Date', 'تاريخ', 'End Date']),
+        'رقم الهاتف': find_column(['Mobile Number', 'Phone', 'تلفون']),
+        'الحالة': find_column(['Status', 'حالة', 'Online'])
     }
 
-    # فلترة الأعمدة: بناخد بس اللي موجود بالليست فوق
-    available_cols = [c for c in requested_cols.keys() if c in df.columns]
+    # منشيل الـ None (الأعمدة اللي ما لاقاها)
+    existing_cols = {v: k for k, v in target_cols.items() if v is not None}
     
-    # إنشاء نسخة جديدة من الجدول فيها بس الأعمدة المطلوبة
-    final_df = df[available_cols].copy()
-    
-    # تغيير الأسماء للعربية عشان الترتيب والجمالية
-    final_df = final_df.rename(columns=requested_cols)
+    if existing_cols:
+        # منعمل جدول جديد فيه بس اللي لاقيناه
+        display_df = df[list(existing_cols.keys())].copy()
+        # منغير الأسماء للعربي
+        display_df = display_df.rename(columns=existing_cols)
 
-    # --- الإحصائيات (فوق الجدول) ---
-    total = len(final_df)
-    # حساب الأونلاين من العمود الأصلي قبل الحذف
-    online = 0
-    if 'Status' in df.columns:
-        online = len(df[df['Status'].astype(str).str.contains('Online|Active', case=False, na=False)])
+        # إحصائيات سريعة
+        c1, c2 = st.columns(2)
+        c1.metric("👥 عدد الزبائن", len(df))
+        
+        # عرض الجدول مع تلوين الحالة إذا موجودة
+        def color_status(val):
+            v = str(val).lower()
+            if 'online' in v or 'active' in v: return 'background-color: #d4edda; color: #155724'
+            if 'offline' in v or 'expired' in v: return 'background-color: #f8d7da; color: #721c24'
+            return ''
 
-    c1, c2 = st.columns(2)
-    c1.metric("👥 عدد الزبائن", total)
-    c2.metric("🟢 أونلاين", online)
-
-    st.divider()
-
-    # --- البحث ---
-    search = st.sidebar.text_input("🔍 بحث سريع:")
-    if search:
-        final_df = final_df[final_df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-
-    # --- عرض الجدول المنسق ---
-    st.subheader("📋 القائمة المختصرة")
-
-    # دالة الألوان للحالة
-    def color_status(val):
-        v = str(val).lower()
-        if 'online' in v or 'active' in v: return 'background-color: #d4edda; color: #155724; font-weight: bold' # خلفية خضراء فاتحة
-        if 'offline' in v or 'expired' in v: return 'background-color: #f8d7da; color: #721c24; font-weight: bold' # خلفية حمراء فاتحة
-        return ''
-
-    # تطبيق التنسيق وعرض الجدول
-    if 'الحالة' in final_df.columns:
-        st.dataframe(final_df.style.applymap(color_status, subset=['الحالة']), use_container_width=True)
+        st.subheader("📋 القائمة المطلوبة")
+        if 'الحالة' in display_df.columns:
+            st.dataframe(display_df.style.applymap(color_status, subset=['الحالة']), use_container_width=True)
+        else:
+            st.dataframe(display_df, use_container_width=True)
     else:
-        st.dataframe(final_df, use_container_width=True)
+        # إذا فشل الكود بمعرفة الأسماء، بيعرض الجدول كامل عشان ما يختفوا الزباين
+        st.warning("⚠️ لم أستطع تحديد الأعمدة المطلوبة بدقة، إليك الجدول الكامل:")
+        st.dataframe(df, use_container_width=True)
 
 else:
-    st.info("الجدول فاضي أو الرابط غلط.")
+    st.info("الجدول فارغ أو الرابط غير صحيح.")
 
-# زر التحديث
 if st.sidebar.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
