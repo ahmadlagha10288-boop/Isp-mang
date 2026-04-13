@@ -1,63 +1,92 @@
 import streamlit as st
 import pandas as pd
 from urllib.parse import quote
+from datetime import datetime
 
-# إعداد الصفحة
-st.set_page_config(page_title="Future Net Radar", layout="wide")
+# 1. إعدادات الصفحة
+st.set_page_config(page_title="Future Net - Cards View", layout="wide")
+
+# تصميم CSS مخصص للبطاقات
+st.markdown("""
+    <style>
+    .user-card {
+        background-color: #1e1e1e;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-left: 5px solid #007bff;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    }
+    .status-online { color: #2ecc71; font-weight: bold; }
+    .status-offline { color: #e74c3c; font-weight: bold; }
+    .client-name { font-size: 1.2rem; font-weight: bold; color: #ffffff; }
+    .info-label { color: #888888; font-size: 0.9rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
 def load_data():
     try:
-        # الرابط من Secrets وتصحيحه تلقائياً
-        raw_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        csv_url = raw_url.replace('/edit', '/export?format=csv') if "edit" in raw_url else raw_url
-        
-        # قراءة البيانات - الإكسل عندك بيبدأ فوراً بالأسماء
-        df = pd.read_csv(csv_url, header=None)
-        
-        # تنظيف أي سطر فارغ تماماً
-        df = df.dropna(how='all')
-        
-        # ربط الأعمدة يدوياً حسب صورتك:
-        # 0=A (abotol, khaled), 1=B (Status), 2=C (Service), 3=D (Expiry), 5=F (Phone)
-        df = df.iloc[:, [0, 1, 2, 3, 5]]
-        df.columns = ['Username', 'Status', 'Package', 'Expiry', 'Phone']
-        
-        # حذف الكلمات التقنية والأسطر الفارغة
-        df = df[df['Username'].notna()]
-        df['Username'] = df['Username'].astype(str).str.strip()
-        df = df[~df['Username'].str.contains('Radius|Action|Name|nan|Total', case=False)]
-        
-        return df.reset_index(drop=True)
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        df = pd.read_csv(url, header=1)
+        df.columns = df.columns.astype(str).str.strip()
+        if 'Selling Price' in df.columns:
+            df['Selling Price'] = pd.to_numeric(df['Selling Price'].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0)
+        return df
     except Exception as e:
+        st.error(f"Error: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
-st.title("📡 رادار فيوتشر نت")
+st.title("🌐 Future Net - Clients Portal")
 
-if df.empty:
-    st.warning("⚠️ تأكد من أن رابط الجوجل شيت 'عام' (Anyone with the link).")
-else:
-    # عرض المشتركين
-    for _, row in df.iterrows():
-        # تحديد اللون حسب الحالة
-        status = str(row['Status']).strip()
-        status_color = "#2ecc71" if "Online" in status else "#e74c3c"
-        
-        with st.container():
+if not df.empty:
+    # --- قسم البحث ---
+    search = st.text_input("🔍 ابحث عن زبون بالاسم أو الرقم:")
+    if search:
+        df = df[df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
+
+    st.write(f"عرض {len(df)} مشترك")
+
+    # --- عرض الزبائن على شكل كولوم (Columns) وبطاقات ---
+    # منعمل 3 أعمدة بكل سطر
+    cols = st.columns(3)
+    
+    for index, row in df.iterrows():
+        # توزيع البطاقات على الأعمدة الثلاثة
+        with cols[index % 3]:
+            status = str(row['Status']).lower() if 'Status' in df.columns else ""
+            status_class = "status-online" if 'online' in status or 'active' in status else "status-offline"
+            status_text = "🟢 Online" if 'online' in status or 'active' in status else "🔴 Offline"
+            
+            phone = str(row['Mobile Number']).replace('.0', '') if 'Mobile Number' in df.columns else ""
+            
+            # محتوى البطاقة
             st.markdown(f"""
-                <div style="background:#1a1a1a; padding:15px; border-radius:12px; margin-bottom:12px; border-left:6px solid {status_color};">
-                    <h3 style="margin:0; color:white;">👤 {row['Username']}</h3>
-                    <div style="margin-top:8px; color:#bdc3c7; font-size:0.9rem;">
-                        <b>📦 الباقة:</b> {row['Package']} | <b>📅 الانتهاء:</b> {row['Expiry']}
-                    </div>
-                    <p style="margin:5px 0 0 0; color:{status_color}; font-weight:bold;">● {status}</p>
+                <div class="user-card">
+                    <div class="client-name">{row['Name'] if 'Name' in df.columns else 'Unknown'}</div>
+                    <div class="{status_class}">{status_text}</div>
+                    <hr style="margin: 10px 0; border-color: #333;">
+                    <div><span class="info-label">Service:</span> {row['Service'] if 'Service' in df.columns else 'N/A'}</div>
+                    <div><span class="info-label">Expiry:</span> {row['Expiry Date'] if 'Expiry Date' in df.columns else 'N/A'}</div>
+                    <div><span class="info-label">Price:</span> ${row['Selling Price'] if 'Selling Price' in df.columns else '0'}</div>
                 </div>
             """, unsafe_allow_html=True)
             
-            # زر الواتساب (من العمود F)
-            phone = str(row['Phone']).replace('.0', '').replace(' ', '').strip()
-            if phone != 'nan' and len(phone) >= 7:
-                full_num = f"961{phone}" if not phone.startswith('961') else phone
-                msg = quote(f"تنبيه من فيوتشر نت: المشترك {row['Username']}، اشتراكك {row['Package']} قارب على الانتهاء.")
-                st.link_button(f"💬 مراسلة {row['Username']}", f"https://wa.me/{full_num}?text={msg}")
+            # أزرار التفاعل تحت كل بطاقة
+            c1, c2 = st.columns(2)
+            with c1:
+                if phone:
+                    msg = quote(f"Hello {row['Name']}, your subscription is {row['Status']}. Please contact us for any help.")
+                    st.markdown(f"[📲 WhatsApp](https://wa.me/{phone}?text={msg})")
+            with c2:
+                if st.button(f"Details", key=f"btn_{index}"):
+                    st.info(f"Full Data for {row['Name']}: \n\n {row.to_dict()}")
+
+else:
+    st.warning("No data found in the spreadsheet.")
+
+# زر التحديث
+if st.sidebar.button("🔄 Update Data"):
+    st.cache_data.clear()
+    st.rerun()
