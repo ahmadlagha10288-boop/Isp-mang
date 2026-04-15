@@ -6,24 +6,47 @@ from urllib.parse import quote
 # 1. إعداد الصفحة
 st.set_page_config(page_title="Future Net Pro", layout="wide")
 
-# 2. خيارات السايد بار (خافتة)
-st.sidebar.markdown("<h4 style='color: #888;'>⚙️ Settings</h4>", unsafe_allow_html=True)
+# 2. ميزة تبديل اللغة (خافتة في السايد بار)
+st.sidebar.markdown("<h4 style='color: #888;'>⚙️ الإعدادات / Settings</h4>", unsafe_allow_html=True)
 lang = st.sidebar.radio("", ["العربية", "English"], label_visibility="collapsed")
-if st.sidebar.button("🔄 Refresh"):
+
+# 3. زر إعادة تحديث الصفحة (Refresh)
+if st.sidebar.button("🔄 تحديث البيانات / Reload"):
     st.rerun()
 
 # قاموس النصوص
 texts = {
-    "العربية": {"search": "🔍 ابحث...", "pkg": "باقة", "exp": "ينتهي", "days": "أيام"},
-    "English": {"search": "🔍 Search...", "pkg": "Pkg", "exp": "Exp", "days": "Days"}
+    "العربية": {
+        "title": "📡 رادار فيوتشر نت",
+        "search": "🔍 ابحث عن مشترك...",
+        "package": "الباقة",
+        "expiry": "الانتهاء",
+        "status": "الحالة",
+        "pay": "تم الدفع",
+        "extend": "تجديد",
+        "whatsapp": "واتساب",
+        "days_left": "الأيام"
+    },
+    "English": {
+        "title": "📡 Future Net Radar",
+        "search": "🔍 Search...",
+        "package": "Package",
+        "expiry": "Expiry",
+        "status": "Status",
+        "pay": "Paid",
+        "extend": "Renew",
+        "whatsapp": "WhatsApp",
+        "days_left": "Days"
+    }
 }
 t = texts[lang]
 
-# 3. جلب البيانات
+# 4. دالة جلب البيانات
 def load_data():
     try:
         url = st.secrets["connections"]["spreadsheet"]
-        df = pd.read_csv(url, header=None).dropna(how='all')
+        df = pd.read_csv(url, header=None)
+        df = df.dropna(how='all')
         df = df.iloc[:, [0, 1, 2, 3]]
         df.columns = ['Username', 'Status', 'Expiry', 'Package']
         df['Username'] = df['Username'].astype(str).str.strip()
@@ -35,78 +58,85 @@ def load_data():
 
 df = load_data()
 
-# --- CSS لتصغير حجم المربع (البوكس) والحفاظ على وضوح الخط ---
+# --- CSS المخصص: خلفية بيضاء + بطاقات زرقاء + نصوص واضحة ---
 st.markdown(f"""
     <style>
-    .stApp {{ background-color: #ffffff; }}
+    /* جعل الخلفية الأساسية بيضاء */
+    .stApp {{
+        background-color: #ffffff;
+    }}
     
-    /* تصغير المربع وضغطه */
-    .compact-card {{
-        background-color: #004aad;
-        border-radius: 8px;
-        padding: 8px 12px; /* تقليل المسافات الداخلية */
-        margin-bottom: 5px;
+    /* جعل السايد بار خافت */
+    [data-testid="stSidebar"] {{
+        background-color: #f8f9fa;
+        opacity: 0.8;
+    }}
+
+    /* تصميم البطاقة الزرقاء */
+    .card {{
+        background-color: #004aad; /* أزرق غامق احترافي */
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 10px;
         color: white;
-        border-right: 6px solid #4a90e2;
-        min-height: 130px; /* طول معتدل للمربع */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: {'right' if lang == 'العربية' else 'left'};
     }}
     
-    .user-title {{
-        font-size: 1.15rem; /* حجم خط واضح */
+    .client-name {{
+        font-size: 1.3rem;
         font-weight: bold;
-        margin-bottom: 4px;
         color: #ffffff;
+        border-bottom: 1px solid #4a90e2;
+        padding-bottom: 5px;
+        margin-bottom: 10px;
     }}
-    
-    .info-line {{
-        font-size: 0.95rem; /* خط المعلومات الأساسي */
-        margin: 1px 0;
+
+    .info-text {{
+        font-size: 1rem;
         color: #e0e0e0;
+        margin: 3px 0;
     }}
-    
-    .status-label {{
-        font-size: 0.75rem;
+
+    /* ألوان الحالة داخل البطاقة */
+    .status-badge {{
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 5px;
+        font-size: 0.8rem;
         background: rgba(255,255,255,0.2);
-        padding: 1px 6px;
-        border-radius: 4px;
-        float: {'left' if lang == 'العربية' else 'right'};
+        margin-bottom: 5px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown(f"<h3 style='color: #004aad; text-align: center;'>📡 Future Net Radar</h3>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='color: #004aad; text-align: center;'>{t['title']}</h1>", unsafe_allow_html=True)
 
 if not df.empty:
     search = st.text_input(t["search"], label_visibility="collapsed")
     if search:
         df = df[df['Username'].str.contains(search, case=False)]
 
-    # عرض زبونين في كل سطر
-    for i in range(0, len(df), 2):
-        cols = st.columns(2)
-        for j in range(2):
-            if i + j < len(df):
-                row = df.iloc[i + j]
-                days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else "!!"
-                
-                with cols[j]:
-                    # تصميم المربع المضغوط
-                    st.markdown(f"""
-                        <div class="compact-card">
-                            <div class="status-label">{row['Status']}</div>
-                            <div class="user-title">👤 {row['Username']}</div>
-                            <div class="info-line">📦 {t['pkg']}: {row['Package']}</div>
-                            <div class="info-line">📅 {t['exp']}: {row['Expiry'].split(' ')[0]}</div>
-                            <div class="info-line">⏳ {t['days']}: {days_left}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # أزرار التحكم (💰, 🔄, 📲) بجانب بعضها تحت المربع مباشرة
-                    b_col = st.columns(3)
-                    with b_col[0]: st.button("💰", key=f"p_{i+j}", use_container_width=True)
-                    with b_col[1]: st.button("🔄", key=f"e_{i+j}", use_container_width=True)
-                    with b_col[2]: 
-                        wa_link = f"https://wa.me/961?text=Hi {row['Username']}"
-                        st.link_button("📲", wa_link, use_container_width=True)
+    for idx, row in df.iterrows():
+        days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else "N/A"
+        
+        # عرض البطاقة الزرقاء
+        st.markdown(f"""
+            <div class="card">
+                <div class="status-badge">● {row['Status']}</div>
+                <div class="client-name">👤 {row['Username']}</div>
+                <div class="info-text"><b>{t['package']}:</b> {row['Package']}</div>
+                <div class="info-text"><b>{t['expiry']}:</b> {row['Expiry']}</div>
+                <div class="info-text"><b>{t['days_left']}:</b> {days_left}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # أزرار التحكم
+        c1, c2, c3 = st.columns(3)
+        with c1: st.button(t["pay"], key=f"p_{idx}", use_container_width=True)
+        with c2: st.button(t["extend"], key=f"e_{idx}", use_container_width=True)
+        with c3:
+            link = f"https://wa.me/961?text=" + quote(f"Hi {row['Username']}...")
+            st.link_button(t["whatsapp"], link, use_container_width=True)
 else:
-    st.info("No Data.")
+    st.error("لم نتمكن من سحب البيانات. تأكد من أن ملف الإكسل يبدأ بالبيانات من الخانة A1.")
