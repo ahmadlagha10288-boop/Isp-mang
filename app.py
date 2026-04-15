@@ -6,39 +6,24 @@ from urllib.parse import quote
 # 1. إعداد الصفحة
 st.set_page_config(page_title="Future Net Pro", layout="wide")
 
-# 2. جلب اللغة (عربي/إنجليزي) من السايد بار
-st.sidebar.markdown("<h4 style='color: #888;'>⚙️ الإعدادات</h4>", unsafe_allow_html=True)
+# 2. خيارات السايد بار (خافتة)
+st.sidebar.markdown("<h4 style='color: #888;'>⚙️ Settings</h4>", unsafe_allow_html=True)
 lang = st.sidebar.radio("", ["العربية", "English"], label_visibility="collapsed")
+if st.sidebar.button("🔄 Refresh"):
+    st.rerun()
 
 # قاموس النصوص
 texts = {
-    "العربية": {
-        "search": "🔍 ابحث...",
-        "package": "الباقة",
-        "expiry": "الانتهاء",
-        "days": "الأيام",
-        "pay": "تم الدفع",
-        "extend": "تجديد",
-        "whatsapp": "واتساب"
-    },
-    "English": {
-        "search": "🔍 Search...",
-        "package": "Pkg",
-        "expiry": "Exp",
-        "days": "Days",
-        "pay": "Paid",
-        "extend": "Renew",
-        "whatsapp": "WA"
-    }
+    "العربية": {"search": "🔍 ابحث...", "pkg": "باقة", "exp": "ينتهي", "days": "أيام"},
+    "English": {"search": "🔍 Search...", "pkg": "Pkg", "exp": "Exp", "days": "Days"}
 }
 t = texts[lang]
 
-# 3. دالة جلب البيانات
+# 3. جلب البيانات
 def load_data():
     try:
         url = st.secrets["connections"]["spreadsheet"]
-        df = pd.read_csv(url, header=None)
-        df = df.dropna(how='all')
+        df = pd.read_csv(url, header=None).dropna(how='all')
         df = df.iloc[:, [0, 1, 2, 3]]
         df.columns = ['Username', 'Status', 'Expiry', 'Package']
         df['Username'] = df['Username'].astype(str).str.strip()
@@ -50,90 +35,78 @@ def load_data():
 
 df = load_data()
 
-# --- CSS لتصغير المربعات وجعلها طولية ---
+# --- CSS لتصغير حجم المربع (البوكس) والحفاظ على وضوح الخط ---
 st.markdown(f"""
     <style>
     .stApp {{ background-color: #ffffff; }}
     
-    /* تصميم الكرت الصغير الطولي */
-    .mini-card {{
+    /* تصغير المربع وضغطه */
+    .compact-card {{
         background-color: #004aad;
-        border-radius: 10px;
-        padding: 10px;
+        border-radius: 8px;
+        padding: 8px 12px; /* تقليل المسافات الداخلية */
         margin-bottom: 5px;
         color: white;
-        text-align: center;
-        min-height: 180px; /* ضمان توحد الطول */
+        border-right: 6px solid #4a90e2;
+        min-height: 130px; /* طول معتدل للمربع */
     }}
     
-    .user-name {{
-        font-size: 1.1rem;
+    .user-title {{
+        font-size: 1.15rem; /* حجم خط واضح */
         font-weight: bold;
-        border-bottom: 1px solid rgba(255,255,255,0.2);
-        margin-bottom: 8px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        margin-bottom: 4px;
+        color: #ffffff;
     }}
     
-    .mini-info {{
-        font-size: 0.85rem;
-        margin: 2px 0;
+    .info-line {{
+        font-size: 0.95rem; /* خط المعلومات الأساسي */
+        margin: 1px 0;
         color: #e0e0e0;
     }}
     
-    .status-dot {{
+    .status-label {{
         font-size: 0.75rem;
-        background: rgba(255,255,255,0.15);
-        padding: 2px 8px;
-        border-radius: 10px;
-    }}
-
-    /* تصغير حجم أزرار الستريم ليت لتناسب العرض الصغير */
-    div.stButton > button {{
-        padding: 2px 5px !important;
-        font-size: 0.8rem !important;
-        height: 30px !important;
+        background: rgba(255,255,255,0.2);
+        padding: 1px 6px;
+        border-radius: 4px;
+        float: {'left' if lang == 'العربية' else 'right'};
     }}
     </style>
     """, unsafe_allow_html=True)
 
-# العنوان
-st.markdown(f"<h2 style='color: #004aad; text-align: center;'>📡 Future Net</h2>", unsafe_allow_html=True)
+st.markdown(f"<h3 style='color: #004aad; text-align: center;'>📡 Future Net Radar</h3>", unsafe_allow_html=True)
 
 if not df.empty:
     search = st.text_input(t["search"], label_visibility="collapsed")
     if search:
         df = df[df['Username'].str.contains(search, case=False)]
 
-    # --- توزيع الزبائن (2 في كل سطر) ---
-    # نستخدم loop بيمشي خطوتين خطوتين
+    # عرض زبونين في كل سطر
     for i in range(0, len(df), 2):
-        cols = st.columns(2) # إنشاء عمودين
-        
+        cols = st.columns(2)
         for j in range(2):
             if i + j < len(df):
                 row = df.iloc[i + j]
                 days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else "!!"
                 
                 with cols[j]:
-                    # الكرت الطولي
+                    # تصميم المربع المضغوط
                     st.markdown(f"""
-                        <div class="mini-card">
-                            <div class="status-dot">● {row['Status']}</div>
-                            <div class="user-name">👤 {row['Username']}</div>
-                            <div class="mini-info">📦 {row['Package']}</div>
-                            <div class="mini-info">📅 {row['Expiry'].split(' ')[0]}</div>
-                            <div class="mini-info">⏳ {t['days']}: {days_left}</div>
+                        <div class="compact-card">
+                            <div class="status-label">{row['Status']}</div>
+                            <div class="user-title">👤 {row['Username']}</div>
+                            <div class="info-line">📦 {t['pkg']}: {row['Package']}</div>
+                            <div class="info-line">📅 {t['exp']}: {row['Expiry'].split(' ')[0]}</div>
+                            <div class="info-line">⏳ {t['days']}: {days_left}</div>
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # أزرار تحكم مصغرة تحت الكرت
-                    btn_cols = st.columns(3)
-                    with btn_cols[0]: st.button("💰", key=f"p_{i+j}", help=t["pay"])
-                    with btn_cols[1]: st.button("🔄", key=f"e_{i+j}", help=t["extend"])
-                    with btn_cols[2]: 
-                        link = f"https://wa.me/961?text=" + quote(f"Hi {row['Username']}...")
-                        st.link_button("📲", link)
+                    # أزرار التحكم (💰, 🔄, 📲) بجانب بعضها تحت المربع مباشرة
+                    b_col = st.columns(3)
+                    with b_col[0]: st.button("💰", key=f"p_{i+j}", use_container_width=True)
+                    with b_col[1]: st.button("🔄", key=f"e_{i+j}", use_container_width=True)
+                    with b_col[2]: 
+                        wa_link = f"https://wa.me/961?text=Hi {row['Username']}"
+                        st.link_button("📲", wa_link, use_container_width=True)
 else:
-    st.info("No Data Found.")
+    st.info("No Data.")
