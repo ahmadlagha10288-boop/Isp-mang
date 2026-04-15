@@ -3,142 +3,123 @@ import pandas as pd
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
-# 1. إعدادات الصفحة الأساسية
-st.set_page_config(page_title="Future Net Admin", layout="wide")
+# 1. إعداد الصفحة والستايل
+st.set_page_config(page_title="Future Net Ultimate", layout="wide")
 
-# 2. نظام اللغات (Switch)
+# 2. اللغات والترجمة
 if 'lang' not in st.session_state: st.session_state.lang = 'العربية'
-lang = st.sidebar.radio("🌐 Language / اللغة", ["العربية", "English"])
+lang_choice = st.sidebar.radio("🌐 Language / اللغة", ["العربية", "English"])
 
 texts = {
     "العربية": {
-        "title": "📡 لوحة تحكم فيوتشر نت",
-        "search": "🔍 بحث عن مشترك...",
-        "filter": "تصفية حسب الحالة",
-        "sort": "ترتيب حسب",
-        "debt": "الدين",
-        "renew": "تجديد",
-        "wa_remind": "تذكير (3 أيام)",
-        "wa_done": "تم التجديد",
-        "wa_late": "تأخير دفع",
-        "wa_cut": "قطع نهائي",
-        "stats": "إحصائيات سريعة"
+        "title": "📡 رادار فيوتشر نت - الإدارة الشاملة",
+        "search": "🔍 ابحث عن اسم...",
+        "sort": "الترتيب حسب",
+        "debt": "دين", "pkg": "باقة", "days": "أيام",
+        "pay": "💰 قبض", "ext": "🔄 تجديد",
+        "wa_warn": "⚠️ تحذير", "wa_done": "✅ تم", "wa_late": "🔔 تأخير", "wa_cut": "🚫 قطع",
+        "expired": "منتهي", "near": "قرب يخلص"
     },
     "English": {
-        "title": "📡 Future Net Admin Panel",
-        "search": "🔍 Search client...",
-        "filter": "Filter Status",
-        "sort": "Sort by",
-        "debt": "Debt",
-        "renew": "Renew",
-        "wa_remind": "Reminder (3d)",
-        "wa_done": "Renewed",
-        "wa_late": "Late Pay",
-        "wa_cut": "Cut Line",
-        "stats": "Quick Stats"
+        "title": "📡 Future Net - Ultimate Management",
+        "search": "🔍 Search name...",
+        "sort": "Sort By",
+        "debt": "Debt", "pkg": "Pkg", "days": "Days",
+        "pay": "💰 Pay", "ext": "🔄 Renew",
+        "wa_warn": "⚠️ Warn", "wa_done": "✅ Done", "wa_late": "🔔 Late", "wa_cut": "🚫 Cut",
+        "expired": "Expired", "near": "Near"
     }
 }
-t = texts[lang]
+t = texts[lang_choice]
 
-# 3. دالة جلب البيانات مع دعم "الدين" (بافتراض وجود عمود للدين)
+# 3. جلب البيانات (تأكد من وجود عمود للدين ورقم الهاتف في الشيت)
 def load_data():
     try:
         url = st.secrets["connections"]["spreadsheet"]
         df = pd.read_csv(url, header=None).dropna(how='all')
-        # الأعمدة: 0:اسم، 1:حالة، 2:تاريخ، 3:باقة، 4:دين (اختياري)
-        df = df.iloc[:, :5]
-        df.columns = ['Name', 'Status', 'Expiry', 'Package', 'Debt'] if len(df.columns) == 5 else ['Name', 'Status', 'Expiry', 'Package']
-        if 'Debt' not in df.columns: df['Debt'] = 0
-        
+        # الأعمدة: 0:اسم، 1:حالة، 2:تاريخ، 3:باقة، 4:دين، 5:تلفون
+        df.columns = ['Name', 'Status', 'Expiry', 'Package', 'Debt', 'Phone']
         df['Expiry_Date'] = pd.to_datetime(df['Expiry'], errors='coerce')
-        return df.fillna(0)
-    except: return pd.DataFrame()
+        df['Debt'] = pd.to_numeric(df['Debt'], errors='coerce').fillna(0)
+        return df
+    except:
+        st.error("⚠️ مشكلة بالرابط! تأكد من إعدادات Secrets.")
+        return pd.DataFrame()
 
 df = load_data()
 
-# --- التصميم الجديد (White & Blue) ---
-st.markdown("""
-<style>
-    .stApp { background-color: #ffffff; }
-    [data-testid="stSidebar"] { opacity: 0.9; border-right: 1px solid #eee; }
-    .user-card { 
-        background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 12px;
-        padding: 15px; margin-bottom: 10px; border-left: 8px solid #004aad;
-    }
-    .user-name { color: #004aad; font-size: 1.2rem; font-weight: bold; }
-    .debt-tag { color: #e74c3c; font-weight: bold; font-size: 0.9rem; }
-</style>
+# 4. CSS للتحكم بالألوان والخلفية البيضاء
+st.markdown(f"""
+    <style>
+    .stApp {{ background-color: #ffffff; }}
+    .card {{
+        background: #fdfdfd; border-radius: 10px; padding: 12px; margin-bottom: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: {'right' if lang_choice == 'العربية' else 'left'};
+    }}
+    /* نظام إشارة السير */
+    .border-green {{ border-{'right' if lang_choice == 'العربية' else 'left'}: 10px solid #2ecc71; }}
+    .border-yellow {{ border-{'right' if lang_choice == 'العربية' else 'left'}: 10px solid #f1c40f; }}
+    .border-red {{ border-{'right' if lang_choice == 'العربية' else 'left'}: 10px solid #e74c3c; }}
+    </style>
 """, unsafe_allow_html=True)
 
-# 4. لوحة الإحصائيات (Quick Stats)
+# 5. الفرز والتحكم
+st.sidebar.subheader(t["sort"])
+sort_option = st.sidebar.selectbox("", [
+    "Name (A-Z)", "Date (Newest)", "Status (Expired First)", "Debt (Highest)", "Package Type"
+])
+
 if not df.empty:
-    st.title(t["title"])
-    c1, c2, c3 = st.columns(3)
-    c1.metric(t["stats"], len(df))
-    c2.metric("Online ✅", len(df[df['Status'] == 'Online']))
-    c3.metric("Total Debt 💰", f"${df['Debt'].astype(float).sum()}")
+    # تطبيق الفرز
+    if "Name" in sort_option: df = df.sort_values('Name')
+    elif "Date" in sort_option: df = df.sort_values('Expiry_Date', ascending=False)
+    elif "Status" in sort_option: df = df.sort_values('Status')
+    elif "Debt" in sort_option: df = df.sort_values('Debt', ascending=False)
+    elif "Package" in sort_option: df = df.sort_values('Package')
 
-    # 5. الفرز المتقدم (Sorting)
-    st.sidebar.subheader("⚙️ " + t["sort"])
-    sort_val = st.sidebar.selectbox("", ["Name (A-Z)", "Date (Newest)", "Debt (Highest)", "Package"])
-    
-    if "Name" in sort_val: df = df.sort_values('Name')
-    elif "Date" in sort_val: df = df.sort_values('Expiry_Date', ascending=False)
-    elif "Debt" in sort_val: df = df.sort_values('Debt', ascending=False)
-
-    # 6. البحث والتحديد الجماعي
-    search = st.text_input(t["search"])
+    st.markdown(f"<h2 style='text-align:center; color:#004aad;'>{t['title']}</h2>", unsafe_allow_html=True)
+    search = st.text_input(t["search"], label_visibility="collapsed")
     if search: df = df[df['Name'].str.contains(search, case=False)]
-    
-    selected_users = st.multiselect("Bulk Action / تحديد جماعي", df['Name'].tolist())
-    if selected_users and st.button("⚡ Renew Selected / تجديد المحددين"):
-        st.success(f"Done! Processed {len(selected_users)} users.")
 
-    st.divider()
+    # 6. عرض الزبائن (2 في السطر)
+    for i in range(0, len(df), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(df):
+                row = df.iloc[i + j]
+                days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else -1
+                
+                # تحديد لون البطاقة
+                card_class = "border-green" # شغال
+                if days_left < 0: card_class = "border-red" # منتهي
+                elif days_left <= 3: card_class = "border-yellow" # قرب يخلص
+                
+                with cols[j]:
+                    st.markdown(f"""
+                        <div class="card {card_class}">
+                            <div style="font-weight:bold; font-size:1.1rem; color:#333;">👤 {row['Name']}</div>
+                            <div style="font-size:0.9rem; color:#666;">📦 {row['Package']} | ⏳ {t['days']}: {days_left if days_left >=0 else t['expired_text']}</div>
+                            <div style="color:#e74c3c; font-weight:bold;">💰 {t['debt']}: ${row['Debt']}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # أزرار الإدارة والواتساب
+                    b1, b2, b3 = st.columns([1, 1, 2])
+                    with b1: st.button("➕", key=f"add_{i+j}") # زيادة دين
+                    with b2: st.button("🔄", key=f"ren_{i+j}") # تجديد
+                    
+                    with b3:
+                        # روابط الواتساب المصلحة
+                        def send_wa(msg):
+                            phone = str(row['Phone']).replace('.0','')
+                            return f"https://wa.me/{phone}?text={quote(msg)}"
 
-    # 7. عرض المشتركين
-    for idx, row in df.iterrows():
-        days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else 0
-        
-        with st.container():
-            st.markdown(f"""
-            <div class="user-card">
-                <div style="display:flex; justify-content:space-between;">
-                    <span class="user-name">👤 {row['Name']}</span>
-                    <span class="debt-tag">{t['debt']}: ${row['Debt']}</span>
-                </div>
-                <div style="color:#666; font-size:0.9rem; margin-top:5px;">
-                    📦 {row['Package']} | 📅 {row['Expiry']} | ⏳ {days_left} Days
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # صف الأزرار (إدارة + واتساب)
-            col_admin, col_wa = st.columns([1, 2])
-            
-            with col_admin:
-                sub_c1, sub_c2 = st.columns(2)
-                sub_c1.button("➕", key=f"add_{idx}", help="زيادة دين")
-                sub_c2.button("➖", key=f"sub_{idx}", help="إنقاص دين")
-            
-            with col_wa:
-                # منطق رسائل الواتساب
-                def get_wa_link(msg_type):
-                    messages = {
-                        "remind": f"تذكير: مشتركنا {row['Name']}، اشتراكك ينتهي خلال 3 أيام. يرجى التجديد.",
-                        "done": f"تم بنجاح تجديد اشتراكك {row['Package']}. شكراً لثقتكم.",
-                        "late": f"تنبيه: يوجد رصيد غير مدفوع بقيمة ${row['Debt']}. يرجى السداد لتجنب القطع.",
-                        "cut": f"نأسف لإبلاغك بأنه تم قطع الخدمة لعدم السداد. يرجى التواصل معنا."
-                    }
-                    phone = "961XXXXXXXX" # هنا يجب ربط رقم الهاتف من الشيت
-                    return f"https://wa.me/{phone}?text={quote(messages[msg_type])}"
-
-                wa_c1, wa_c2, wa_c3, wa_c4 = st.columns(4)
-                wa_c1.link_button("⏰", get_wa_link("remind"), help=t["wa_remind"])
-                wa_c2.link_button("✅", get_wa_link("done"), help=t["wa_done"])
-                wa_c3.link_button("⚠️", get_wa_link("late"), help=t["wa_late"])
-                wa_c4.link_button("🚫", get_wa_link("cut"), help=t["wa_cut"])
-            st.write("---")
-
-else:
-    st.warning("No Data Found.")
+                        wa_cols = st.columns(4)
+                        # 1. تحذير (قبل بـ 3 أيام)
+                        wa_cols[0].link_button("⚠️", send_wa(f"تذكير: اشتراكك ينتهي خلال 3 أيام. يرجى التجديد."))
+                        # 2. تم التجديد
+                        wa_cols[1].link_button("✅", send_wa(f"تم تجديد اشتراكك بنجاح. شكراً لك."))
+                        # 3. تزمير دفع (بعد 3 أيام)
+                        wa_cols[2].link_button("🔔", send_wa(f"يرجى تسديد المبلغ المتبقي ${row['Debt']} لتجنب القطع."))
+                        # 4. قطع (بعد أسبوع)
+                        wa_cols[3].link_button("🚫", send_wa(f"تم قطع الخدمة مؤقتاً لعدم السداد. يرجى التواصل معنا."))
