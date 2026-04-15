@@ -6,46 +6,31 @@ from urllib.parse import quote
 # 1. إعداد الصفحة
 st.set_page_config(page_title="Future Net Pro", layout="wide")
 
-# 2. ميزة تبديل اللغة
-if 'lang' not in st.session_state:
-    st.session_state.lang = 'العربية'
-
-lang = st.sidebar.radio("🌐 Language / اللغة", ["العربية", "English"])
+# 2. جلب اللغة (عربي/إنجليزي) من السايد بار
+st.sidebar.markdown("<h4 style='color: #888;'>⚙️ الإعدادات</h4>", unsafe_allow_html=True)
+lang = st.sidebar.radio("", ["العربية", "English"], label_visibility="collapsed")
 
 # قاموس النصوص
 texts = {
     "العربية": {
-        "title": "📡 نظام إدارة فيوتشر نت",
-        "search": "🔍 ابحث عن مشترك...",
-        "total": "إجمالي المشتركين",
-        "online": "متصل الآن ✅",
-        "expired": "منتهي ❌",
+        "search": "🔍 ابحث...",
         "package": "الباقة",
-        "expiry": "تاريخ الانتهاء",
-        "status": "الحالة",
-        "pay": "💰 تم الدفع",
-        "extend": "🔄 تمديد شهر",
-        "whatsapp": "📲 واتساب",
-        "days_left": "الأيام المتبقية",
-        "expired_text": "منتهي"
+        "expiry": "الانتهاء",
+        "days": "الأيام",
+        "pay": "تم الدفع",
+        "extend": "تجديد",
+        "whatsapp": "واتساب"
     },
     "English": {
-        "title": "📡 Future Net Management",
-        "search": "🔍 Search for a client...",
-        "total": "Total Clients",
-        "online": "Online Now ✅",
-        "expired": "Expired ❌",
-        "package": "Package",
-        "expiry": "Expiry Date",
-        "status": "Status",
-        "pay": "💰 Paid",
-        "extend": "🔄 Renew Month",
-        "whatsapp": "📲 WhatsApp",
-        "days_left": "Days Left",
-        "expired_text": "Expired"
+        "search": "🔍 Search...",
+        "package": "Pkg",
+        "expiry": "Exp",
+        "days": "Days",
+        "pay": "Paid",
+        "extend": "Renew",
+        "whatsapp": "WA"
     }
 }
-
 t = texts[lang]
 
 # 3. دالة جلب البيانات
@@ -60,85 +45,95 @@ def load_data():
         df = df[~df['Username'].str.contains('nan|Username|Radius|Total', case=False)]
         df['Expiry_Date'] = pd.to_datetime(df['Expiry'], errors='coerce')
         return df.reset_index(drop=True)
-    except Exception as e:
-        st.error(f"Error: {e}")
+    except:
         return pd.DataFrame()
 
 df = load_data()
 
-# --- التصميم المخصص (CSS) لتحسين القراءة ---
+# --- CSS لتصغير المربعات وجعلها طولية ---
 st.markdown(f"""
     <style>
-    .card {{
-        background-color: #262730;
-        border-radius: 15px;
-        padding: 20px;
-        margin-bottom: 15px;
-        border-right: 8px solid; /* سيتم تحديد اللون برمجياً */
+    .stApp {{ background-color: #ffffff; }}
+    
+    /* تصميم الكرت الصغير الطولي */
+    .mini-card {{
+        background-color: #004aad;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 5px;
         color: white;
+        text-align: center;
+        min-height: 180px; /* ضمان توحد الطول */
     }}
-    .client-title {{
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #ffffff !important;
-        margin-bottom: 10px;
-    }}
-    .info-row {{
-        margin: 5px 0;
+    
+    .user-name {{
         font-size: 1.1rem;
+        font-weight: bold;
+        border-bottom: 1px solid rgba(255,255,255,0.2);
+        margin-bottom: 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+    
+    .mini-info {{
+        font-size: 0.85rem;
+        margin: 2px 0;
         color: #e0e0e0;
     }}
-    .status-tag {{
-        float: {'left' if lang == 'العربية' else 'right'};
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-weight: bold;
+    
+    .status-dot {{
+        font-size: 0.75rem;
+        background: rgba(255,255,255,0.15);
+        padding: 2px 8px;
+        border-radius: 10px;
+    }}
+
+    /* تصغير حجم أزرار الستريم ليت لتناسب العرض الصغير */
+    div.stButton > button {{
+        padding: 2px 5px !important;
+        font-size: 0.8rem !important;
+        height: 30px !important;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-st.title(t["title"])
+# العنوان
+st.markdown(f"<h2 style='color: #004aad; text-align: center;'>📡 Future Net</h2>", unsafe_allow_html=True)
 
 if not df.empty:
-    # إحصائيات سريعة
-    c1, c2, c3 = st.columns(3)
-    c1.metric(t["total"], len(df))
-    c2.metric(t["online"], len(df[df['Status'].str.contains('Online', case=False)]))
-    c3.metric(t["expired"], len(df[df['Status'].str.contains('Expired|Offline', case=False)]))
-
-    search = st.text_input(t["search"])
+    search = st.text_input(t["search"], label_visibility="collapsed")
     if search:
         df = df[df['Username'].str.contains(search, case=False)]
 
-    for idx, row in df.iterrows():
-        days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else -1
+    # --- توزيع الزبائن (2 في كل سطر) ---
+    # نستخدم loop بيمشي خطوتين خطوتين
+    for i in range(0, len(df), 2):
+        cols = st.columns(2) # إنشاء عمودين
         
-        # تحديد الألوان
-        if "Online" in str(row['Status']):
-            color = "#2ecc71" # أخضر
-        elif days_left <= 3 and days_left >= 0:
-            color = "#f1c40f" # أصفر
-        else:
-            color = "#e74c3c" # أحمر
-
-        # المربع الطولي
-        st.markdown(f"""
-            <div class="card" style="border-{'right' if lang == 'العربية' else 'left'}: 10px solid {color};">
-                <div class="status-tag" style="background: {color}22; color: {color}; border: 1px solid {color};">
-                    {row['Status']}
-                </div>
-                <div class="client-title">👤 {row['Username']}</div>
-                <div class="info-row"><b>📦 {t['package']}:</b> {row['Package']}</div>
-                <div class="info-row"><b>📅 {t['expiry']}:</b> {row['Expiry']}</div>
-                <div class="info-row"><b>⏳ {t['days_left']}:</b> {days_left if days_left >= 0 else t['expired_text']}</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # أزرار التحكم بشكل أفقي تحت المربع الطولي
-        b1, b2, b3 = st.columns(3)
-        with b1: st.button(t["pay"], key=f"p_{idx}", use_container_width=True)
-        with b2: st.button(t["extend"], key=f"e_{idx}", use_container_width=True)
-        with b3:
-            link = f"https://wa.me/961?text=" + quote(f"Hello {row['Username']}...")
-            st.link_button(t["whatsapp"], link, use_container_width=True)
-        st.write("---")
+        for j in range(2):
+            if i + j < len(df):
+                row = df.iloc[i + j]
+                days_left = (row['Expiry_Date'] - datetime.now()).days if pd.notnull(row['Expiry_Date']) else "!!"
+                
+                with cols[j]:
+                    # الكرت الطولي
+                    st.markdown(f"""
+                        <div class="mini-card">
+                            <div class="status-dot">● {row['Status']}</div>
+                            <div class="user-name">👤 {row['Username']}</div>
+                            <div class="mini-info">📦 {row['Package']}</div>
+                            <div class="mini-info">📅 {row['Expiry'].split(' ')[0]}</div>
+                            <div class="mini-info">⏳ {t['days']}: {days_left}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # أزرار تحكم مصغرة تحت الكرت
+                    btn_cols = st.columns(3)
+                    with btn_cols[0]: st.button("💰", key=f"p_{i+j}", help=t["pay"])
+                    with btn_cols[1]: st.button("🔄", key=f"e_{i+j}", help=t["extend"])
+                    with btn_cols[2]: 
+                        link = f"https://wa.me/961?text=" + quote(f"Hi {row['Username']}...")
+                        st.link_button("📲", link)
+else:
+    st.info("No Data Found.")
